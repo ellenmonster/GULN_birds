@@ -1,0 +1,603 @@
+---
+title: "GULN Birds - Preliminary Data Checks"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    df_print: kable
+    fig_caption: yes
+    highlight: haddock
+    keep_md: yes
+    smart: no
+    theme: journal
+    number_sections: yes
+    toc: yes
+    toc_float: 
+      collapse: true
+    toc_depth: 3
+
+---
+
+```{r setup, include = FALSE}
+# rm(list=ls())
+
+pkgs <- c("readr", "tidyverse", "here", "janitor", "magrittr", "lubridate", "data.table", "knitr", "DT", "StreamMetabolism", "lutz", "hms")
+installed_pkgs <- pkgs %in% installed.packages()
+if (length(pkgs[!installed_pkgs]) > 0) install.packages(pkgs[!installed_pkgs], repos = "https://cloud.r-project.org" , dep=TRUE)
+invisible(lapply(pkgs, library, character.only = TRUE))
+
+knitr::opts_chunk$set(
+  echo = FALSE, 
+  warning = FALSE, 
+  message = FALSE, 
+  out.width = "100%", 
+  cache = FALSE, 
+  tidy = TRUE)
+
+options(
+  DT.options = list(
+      autoWidth = TRUE,
+      dom = 'Blfrtip',
+      buttons = c('copy', 'csv', 'excel', 'pdf', 'print'),
+      lengthMenu = list(c(10,30,50,-1),
+                        c(10,30,50,"All")),
+      pageLength = 10,
+      columnDefs = list(list(className = 'dt_center', targets = "_all"))
+    )
+)
+```
+
+```{r import_format}
+### Import and format data ----
+
+# File names -- CHANGE AS NEEDED
+
+counts_file <- "GULN_AllParks_BBirdObservations_2010-2022.csv"
+park_lists_file <- "Park_lists_2017.csv"
+veg_file <- "GULN_AllParks_BBird_Veg_061522.csv"
+conditions_file <- "GULN_AllParks_BBird_SiteConditions_2010-2022.csv"
+
+# These are data already cleaned in 1a file
+df_zones <- readRDS(here::here("Data_out", "df_zones.RDS"))
+maps_list <- readRDS(here::here("Data_out", "maps_list.RDS"))
+df_active <- readRDS(here::here("Data_out", "df_active.RDS"))
+
+# Read in data and format remaining data
+df_initialdat <- read_csv(here::here("Data_in", counts_file),
+                    col_types = cols(PointNotes = col_character(), 
+                                     EventComments = col_character())) %>%
+  janitor::clean_names("snake") %>%
+  dplyr::filter(location_name %in% df_active$location_name) %>% # just keep survey locations regularly surveyed after the 2018 protocol peer review (active monitoring points)
+  dplyr::mutate(
+    event_date = lubridate::mdy(date),
+    yr = lubridate::year(event_date),
+    mnth = lubridate::month(event_date)) %>%
+  dplyr::select(-date) %>%
+  dplyr::filter(!is.na(time_bin_id) & distance_bin != "Flyover") %>% # exclude flyovers and exclude records with NA for time bin
+  dplyr::distinct()
+
+df_initialdat$unit_code[str_detect(df_initialdat$location_name, "GUISFL")] <- "GUIS-FL"
+df_initialdat$unit_code[str_detect(df_initialdat$location_name, "GUISMS")] <- "GUIS-MS"
+
+df_species <- read_csv(here::here("Data_in", park_lists_file)) %>%
+  janitor::clean_names("snake") %>%
+  dplyr::rename(
+    unit_code = park,
+    species_code = x4_letter_code, 
+    scientific_name = latin_name) %>%
+  dplyr::distinct()
+  
+# Extract the map-calculated dominant vegetation for 100-m and 200-m radius
+df_buffer_info <- bind_rows(maps_list[names(maps_list)[str_detect(names(maps_list), "_dat")]], .id = "column_label") %>%
+  dplyr::mutate(unit_code = gsub("_dat", "", column_label)) %>% 
+  dplyr::select(unit_code, everything(), -column_label)
+
+dom_veg_100 <- df_buffer_info %>%
+  dplyr::filter(buffer_m == 100) %>%
+  dplyr::select(location_name, dom_veg_100 = dom_veg, dom_veg_prop_100 = dom_veg_prop) %>%
+  dplyr::mutate(
+    temp_hab_type = case_when(
+      dom_veg_100 %in% c("Open", "Marsh", "Agricultural")  ~ "open",
+      dom_veg_100 %in% c("Shrub", "Shrublands") ~ "shrub",
+      dom_veg_100 %in% c("Developed", "Open - Developed") ~ "developed",
+      dom_veg_100 %in% c("Woodlands and Forest", "Woodland and Forest", "Forest") ~ "forest"),
+    hab_type_100 = ifelse(dom_veg_prop_100 >= 60, temp_hab_type, "mixed")) %>%
+      dplyr::select(-temp_hab_type)
+
+dom_veg <- df_buffer_info %>%
+  dplyr::filter(buffer_m == 200) %>%
+  dplyr::select(location_name, dom_veg_200 = dom_veg, dom_veg_prop_200 = dom_veg_prop) %>%
+  dplyr::mutate(
+    temp_hab_type = case_when(
+      dom_veg_200 %in% c("Open", "Marsh", "Agricultural")  ~ "open",
+      dom_veg_200 %in% c("Shrub", "Shrublands") ~ "shrub",
+      dom_veg_200 %in% c("Developed", "Open - Developed") ~ "developed",
+      dom_veg_200 %in% c("Woodlands and Forest", "Woodland and Forest", "Forest") ~ "forest"),
+    hab_type_200 = ifelse(dom_veg_prop_200 >= 60, temp_hab_type, "mixed")) %>%
+      dplyr::select(-temp_hab_type) %>%
+  dplyr::full_join(dom_veg_100, by = "location_name")
+      
+understory_wide <- df_zones %>%
+  dplyr::select(-lidar_count, -lidar_area) %>%
+  tidyr::pivot_wider(names_from = buffer_m, values_from = c(prop_understory_cover, understory_cover_sd))
+
+df_locs <- read_csv(here::here("Data_in", veg_file)) %>%
+  janitor::clean_names("snake") %>%
+  dplyr::select(location_name, map_class, physiognomy) %>%
+  dplyr::left_join(dom_veg, by = "location_name") %>%
+  dplyr::left_join(understory_wide, by = "location_name") %>% 
+  dplyr::filter(location_name %in% unique(df_initialdat$location_name)) %>%
+  dplyr::distinct()
+
+df_survey_conditions <- read_csv(here::here("Data_in", conditions_file)) %>%
+  janitor::clean_names("snake") %>%
+  dplyr::mutate(event_date = lubridate::mdy(date)) %>% # event covariate data--match using location_name and event_date
+  dplyr::select(-date) %>%
+  dplyr::rename(
+    weather_noise_num = weather_background_noise,
+    weather_wind_num = weather_wind) %>%
+  dplyr::right_join(df_locs[, c("unit_code", "location_name")], by = "location_name") %>%
+  dplyr::mutate(
+    weather_wind = case_when(
+      weather_wind_num == 0 ~ "0_calm",
+      weather_wind_num == 1 ~ "1_smoke_drifts",
+      weather_wind_num == 2 ~ "2_light_breeze",
+      weather_wind_num == 3 ~ "3_constant_breeze",
+      weather_wind_num == 4 ~ "4_branches_move",
+      weather_wind_num == 5 ~ "5_trees_sway",
+      weather_wind_num == 6 ~ "6_strong_wind"),
+    weather_sky = case_when( # I re-ordered these!
+      weather_sky == 0 ~ "0_clear",
+      weather_sky == 1 ~ "1_partly_cloudy",
+      weather_sky == 2 ~ "2_cloudy",
+      weather_sky == 3 ~ "5_rain",
+      weather_sky == 4 ~ "3_fog",
+      weather_sky == 5 ~ "4_drizzle"),
+    weather_sky_revised_num = substr(weather_sky, 1, 1),
+    weather_noise = case_when(
+      weather_noise_num == 0 ~ "0_low",
+      weather_noise_num == 1 ~ "1_moderate", 
+      weather_noise_num == 2 ~ "2_high")) %>%
+  mutate(across(ends_with(c("_num", "_temperature", "_interval")), as.integer)) %>%
+  dplyr::mutate(
+    weather_temperature_cs = as.numeric(scale(weather_temperature)), # centered and scaled temp
+    wk = lubridate::week(event_date),
+    julian_prop = lubridate::yday(event_date)/365) %>% 
+  dplyr::inner_join(df_initialdat[c("location_name", "event_date")]) %>%
+  distinct()
+
+# Calculate time-since-sunrise (instead of start_time_interval)
+temp <- df_survey_conditions %>%
+  dplyr::select(location_name, event_date, time) %>%
+  dplyr::distinct() %>%
+  dplyr::left_join(df_locs[, c("location_name", "latitude", "longitude")], by = "location_name")
+
+temp$tz <- lutz::tz_lookup_coords(lat = temp$latitude, lon = temp$longitude, method = "accurate")
+temp$char_date <- gsub("-", "/", as.character(temp$event_date))
+temp %<>%
+  rowwise() %>%
+  dplyr::mutate(sunrise = StreamMetabolism::sunrise.set(latitude, longitude, date = char_date, tz, num.days = 1)$sunrise)
+temp$time_since_rise <- (temp$time - hms::as_hms(temp$sunrise))/3600
+temp$hrs_since_rise <- as.numeric(temp$time_since_rise)
+
+df_survey_conditions %<>%
+  dplyr::left_join(temp[, c("location_name", "event_date", "time", "hrs_since_rise")], by = c("location_name", "event_date", "time"))
+    
+
+# Generate the final data for analyses ----
+# Count the number of individuals detected per species-loc-survey
+# Need to add in zero-counts. This is the full observation data, including non-detection of species. 
+df_finaldat <- df_initialdat %>% # only keep species that are also in the park species list
+  dplyr::select(-common_name, -scientific_name) %>% # keep the capitalization format used in the species list
+  dplyr::inner_join(df_species %>% dplyr::select(unit_code, species_code, scientific_name, common_name, landbird, park_breeding = present_in_np_species_classified_as_park_breeding) %>% distinct(), by = c("unit_code", "species_code")) %>%
+  dplyr::filter(location_name %in% unique(df_locs$location_name)) %>% # only keep locations with corresponding information the sample locations file
+  dplyr::inner_join(df_survey_conditions[c("location_name", "event_date")] %>% distinct(), by = c("location_name", "event_date")) %>% # only keep survey events with corresponding information in site conditions file
+  dplyr::filter(complete.cases(location_name, event_date, species_code, time_bin_id, distance_bin_id, count, data_status)) %>%
+  dplyr::distinct()
+  
+yr_visit_template <- df_finaldat %>%
+  dplyr::select(location_name, event_date, yr) %>%
+  dplyr::distinct() %>%
+  dplyr::arrange(location_name, yr, event_date) %>%
+  dplyr::group_by(location_name, yr) %>%
+  dplyr::mutate(
+    within_yr_survey = row_number(),
+    yr_visit = paste0(yr, "_", within_yr_survey)) %>%
+  dplyr::select(-within_yr_survey)
+                
+# For each unit, every combination of loc-survey event and bird species (ever found in that unit)
+count_template <- merge(
+  df_survey_conditions %>% dplyr::select(unit_code, location_name, event_date) %>% dplyr::distinct() %>% dplyr::inner_join(df_finaldat %>% dplyr::select(location_name, event_date) %>% dplyr::distinct(), by = c("location_name", "event_date")), # the inner join ensures that we are working with the same date range of data from the two data files b/c sometimes the sitecovs data includes more recent survey events than included in the finaldat
+  df_finaldat %>% dplyr::select(unit_code, species_code) %>% dplyr::distinct() %>%
+  dplyr::inner_join(df_species[c("unit_code", "species_code")] %>% distinct(), by = c("unit_code", "species_code"))) %>% # for each unit separately, all species found in each unit
+  dplyr::left_join(df_species %>% dplyr::select(unit_code, species_code, scientific_name, common_name, landbird, park_breeding = present_in_np_species_classified_as_park_breeding), by = c("unit_code", "species_code")
+)
+
+# Number of indiv detected per species for each survey, including zeros filled in. This does not account for probability of detection--it is only number of individuals detected. For each park, includes all species ever detected during a point count in the park.
+df_full_obs <- df_finaldat %>%
+  dplyr::inner_join(df_species[c("unit_code", "species_code")] %>% distinct(), by = c("unit_code", "species_code")) %>%
+  dplyr::select(location_name, event_date, species_code, count) %>%
+    dplyr::group_by(location_name, event_date, species_code) %>%
+    dplyr::summarize(
+      sum_indiv = sum(count, na.rm = TRUE)) %>%
+    dplyr::ungroup() %>% 
+  dplyr::full_join(count_template) %>%
+  dplyr::inner_join(yr_visit_template, by = c("location_name", "event_date")) %>%
+  dplyr::arrange(location_name, event_date, species_code) %>%
+  dplyr::distinct()
+df_full_obs$sum_indiv[is.na(df_full_obs$sum_indiv)] <- 0
+
+# Save files ----
+saveRDS(df_finaldat, here::here("Data_out", "df_finaldat.RDS"))
+saveRDS(df_full_obs, here::here("Data_out", "df_full_obs.RDS"))
+saveRDS(df_locs, here::here("Data_out", "df_locs.RDS"))
+saveRDS(df_buffer_info, here::here("Data_out", "df_buffer_info.RDS"))
+saveRDS(df_survey_conditions, here::here("Data_out", "df_survey_conditions.RDS"))
+saveRDS(df_species, here::here("Data_out", "df_species.RDS"))
+```
+
+<br>
+<span style="font-size:14px; color:red; font-weight:bold;">
+Data issues identified on this page should be fixed in the original data files. The data check should then be RERUN with the UPDATED data files, until data issues are resolved to the extent possible--prior to running the EDA and data analysis scripts.
+</span>
+<br>
+<br>
+<span style="font-size:14px; color:blue; font-weight:bold;">
+Note that the raw data have been modified/subset in the following ways for the data check (and, therefore, for analyses):
+<br>
+<br>
+1. In all files, GUIS has been recoded to GUIS-FL or GUIS-MS.
+<br>
+<br>
+2. These data only include actively surveyed locations, i.e., locations retained since the 2018 protocol peer review.
+<br>
+<br>
+3. These data exclude bird observation records with NA for time bin, because these observations occurred outside of the survey time.
+<br>
+<br>
+4. These data exclude bird observation records with distance bin of 'Flyover', because these are not relevant for analyses.
+<br>
+<br>
+5. Column names have been modified to snake case (all lowercase with underscores between words) for coding management.
+</span>
+<br>
+<br>
+Only the first 10 records are shown for each table. Use the Previous/Next or page number buttons under each table to see additional records. Table records can be filtered, sorted, and exported. To export ALL records, select `Show 'All' entries` before clicking an export button.
+
+# Missing survey events (since 2019)
+
+* These active monitoring points have fewer than 2 surveys in a year (only checking point count data from 2019 to current year)
+
+<span style="font-size:14px; color:red; font-weight:bold;">
+Please update the Active Monitoring Points file (if the locations are not  active) or add the point count data for these survey events (if available), then re-import the updated active monitoring points and bird observation files.
+</span>
+
+```{r}
+loc_freq <- 
+  df_initialdat %>%
+  dplyr::filter(yr >= 2019) %>%
+  dplyr::distinct(unit_code, location_name, yr, event_date) %>%
+  dplyr::count(unit_code, location_name, yr, name = "num_surveys")
+
+missing_dat <- merge(df_active[c("unit_code", "location_name")], data.frame(yr = 2019:max(df_initialdat$yr, na.rm = TRUE))) %>%
+  dplyr::left_join(loc_freq) %>%
+  dplyr::mutate(num_surveys = replace_na(num_surveys, 0)) %>%
+  dplyr::filter(num_surveys < 2) %>%
+  dplyr::arrange(desc(yr), unit_code, location_name)
+
+if(nrow(missing_dat) > 0) {
+  missing_dat %>% DT::datatable(
+    ., 
+    class="compact stripe",
+    rownames= FALSE,
+    extensions = 'Buttons',
+    filter = 'top'
+  )
+} else {
+  cat("No missing survey events")
+}
+```
+
+# More than one record for a park unit-species code combination, in Park Species List
+
+* The park species list has multiple records (with different information) for these combinations of park unit and 4-letter species code.*
+
+<span style="font-size:14px; color:red; font-weight:bold;">
+Please edit or delete incorrect records, then re-import the updated park species list. Each combination of park unit and species code should only have one record.
+</span>
+
+```{r}
+duplic_species <- df_species %>%
+  dplyr::group_by(unit_code, species_code) %>%
+  dplyr::summarize(duplicated= n() > 1) %>%
+  dplyr::filter(duplicated== TRUE)
+
+if(nrow(duplic_species) > 0) {
+  duplic_species %>% DT::datatable(
+    ., 
+    class="compact stripe",
+    rownames= FALSE,
+    extensions = 'Buttons',
+    filter = 'top'
+  )
+} else {
+  cat("No park unit-species code combinations are duplicated in the park species list")
+}
+```
+
+# Species codes that are missing from the Park Species List for a park unit
+
+*These 4-letter species codes were detected in point counts for a park unit but are not recorded in the park species list for that park unit. In some cases the species may be in the park species list but the 4-letter species code may not match. *
+
+<span style="font-size:14px; color:red; font-weight:bold;">
+Please add the following species codes to the park species list for the corresponding park units. Then re-import the updated park species list. Only species and park units recorded in the park species list will be included in the final data set used in analyses.
+</span>
+
+```{r}
+park_list_missing <- df_initialdat[c("unit_code", "species_code", "scientific_name", "common_name")] %>% distinct() %>% dplyr::anti_join(df_species[c("unit_code", "species_code")] %>% distinct()) # species detected during point counts but not in species list
+
+missing_species_info <- park_list_missing %>%
+  dplyr::inner_join(df_initialdat, by = c("unit_code", "species_code", "scientific_name", "common_name")) %>%
+  dplyr::group_by(unit_code, species_code, scientific_name, common_name) %>%
+  dplyr::summarize(total_detections = sum(count)) %>%
+  dplyr::arrange(unit_code, species_code)
+
+if(nrow(missing_species_info) > 0) {
+  missing_species_info %>% DT::datatable(
+    ., 
+    class="compact stripe",
+    rownames= FALSE,
+    extensions = 'Buttons',
+    filter = 'top'
+  )
+} else {
+  cat("No species codes are missing from park species list")
+}
+
+```
+
+# Species that require update in Park Species List, in column 'Present in GULN Point Count (optional)'
+
+*These species were detected in point counts but are recorded in the park species list as `Present in GULN Point Count` = `no`*
+
+<span style="font-size:14px; color:red; font-weight:bold;">
+[OPTIONAL--Does not affect analyses] Please update the point count status for these species in the park species list. That is, for the corresponding park unit, set `Present in GULN Point Count`  = `yes` (it is currently 'no'), then re-import the updated park species list. 
+</span>
+
+```{r}
+count_species_by_park <- unique(df_initialdat[, c("unit_code", "species_code", "scientific_name", "common_name")])
+list_species_by_park <- subset(df_species, present_in_guln_point_count == "yes", select = c("unit_code", "species_code"))
+
+update_species <- anti_join(count_species_by_park, list_species_by_park, by = c("unit_code", "species_code")) %>% dplyr::arrange(unit_code, species_code)
+if(nrow(update_species) > 0) {
+  update_species %>% DT::datatable(
+    ., 
+    class="compact stripe",
+    rownames= FALSE,
+    extensions = 'Buttons',
+    filter = 'top'
+  )
+} else {
+  cat("No species require update in `Present in GULN Point Count` column")
+}
+```
+
+
+# More than one record for a point location, in the Sample Locations file
+
+* The sample locations file has multiple records (with different information) for these point count locations.*
+
+<span style="font-size:14px; color:red; font-weight:bold;">
+Please edit or delete incorrect records, then re-import the updated sample locations file. Each point count location should only have one record.
+</span>
+
+```{r}
+duplic_loc <- df_locs %>%
+  dplyr::group_by(location_name) %>%
+  dplyr::summarize(duplicated= n() > 1) %>%
+  dplyr::filter(duplicated== TRUE)
+
+if(nrow(duplic_loc) > 0) {
+  duplic_loc %>% DT::datatable(
+    ., 
+    class="compact stripe",
+    rownames= FALSE,
+    extensions = 'Buttons',
+    filter = 'top'
+  )
+} else {
+  cat("No point count location is duplicated in the sample locations file")
+}
+```
+
+# Point locations that are missing from the Sample Locations file
+
+*These point locations were detected in point counts but are not recorded in the sample locations file.*
+
+<span style="font-size:14px; color:red; font-weight:bold;">
+Please add the following locations (with datum, latitude, and longitude) to the sample locations file, then re-import the updated sample locations file. Only point locations  with corresponding records in the sample locations file will be included in the final data set used in analyses.
+</span>
+
+```{r}
+update_locs <- sort(unique(df_initialdat$location_name)[!unique(df_initialdat$location_name) %in% df_locs$location_name])
+if(length(update_locs) > 0) {
+  kable(data.frame(location_name = update_locs))
+} else {
+  cat("No point locations are missing from the sample locations file")
+}
+```
+
+# Survey events that are missing from the Site Conditions file
+
+*These survey events were reported in point counts but are not recorded in the site conditions file.*
+
+<span style="font-size:14px; color:red; font-weight:bold;">
+Please add the following survey events (with survey covariate information) to the site conditions file, then re-import the updated site conditions file. Only survey events  with corresponding records in the site conditions file will be included in the final data set used in analyses.
+</span>
+
+```{r}
+events_in_counts <- unique(df_initialdat[, c("unit_code", "location_name", "event_date")])
+events_in_conditions <- subset(df_survey_conditions, select = c("location_name", "event_date"))
+
+update_events <- anti_join(events_in_counts, events_in_conditions, by = c("location_name", "event_date")) %>% dplyr::arrange(unit_code, location_name, event_date)
+
+if(nrow(update_events) > 0) {
+  update_events %>% DT::datatable(
+    ., 
+    class="compact stripe",
+    rownames= FALSE,
+    extensions = 'Buttons',
+    filter = 'top'
+  )
+} else {
+  cat("No survey events are missing from the site conditions file")
+}
+```
+
+# More than one record for a point location-survey date combination, in Site Conditions file
+
+*The site conditions file has multiple records (with different information) for these combinations of point count location and survey date.*
+
+<span style="font-size:14px; color:red; font-weight:bold;">
+Please edit or delete incorrect records, then re-import the updated site conditions file. Each combination of point count location and survey date should only have one record.
+</span>
+
+```{r}
+duplic_conditions <- df_survey_conditions %>%
+  dplyr::group_by(location_name, event_date) %>%
+  dplyr::summarize(duplicated= n() > 1) %>%
+  dplyr::filter(duplicated== TRUE)
+
+if(nrow(duplic_conditions) > 0) {
+  duplic_conditions %>% DT::datatable(
+    ., 
+    class="compact stripe",
+    rownames= FALSE,
+    extensions = 'Buttons',
+    filter = 'top'
+  )
+} else {
+  cat("No location-date combinations are duplicated in the site conditions file")
+}
+```
+
+# Missing (important) information in Site Conditions file
+
+*These site conditions records are missing important covariate information. The missing information are indicated by YELLOW highlighted cells in the table below.*
+
+<span style="font-size:14px; color:red; font-weight:bold;">
+If available, please add the missing covariate information to these records, then re-import the updated site conditions file. Otherwise--when covariate information is missing, the corresponding observations are excluded from analyses that include the covariate.
+</span>
+
+```{r}
+missing_cov <- df_survey_conditions %>%
+  dplyr::select(network, location_name, event_date, time, weather_wind_num, weather_temperature, weather_sky, weather_count_season, weather_noise_num) %>%
+  dplyr::filter(!complete.cases(.))
+
+if(nrow(missing_cov) > 0) {
+  missing_cov %>% DT::datatable(
+    ., 
+    class="compact stripe",
+    rownames= FALSE,
+    extensions = 'Buttons',
+    filter = 'top'
+  ) %>% DT::formatStyle(colnames(missing_cov), backgroundColor  = styleEqual(c(NA), c("yellow")))
+} else {
+  cat("No missing (important) covariate information in site conditions records")
+}
+```
+
+# Survey start time mismatch across files
+
+*The survey start time for a site-survey differs between the Site Conditions file and the bird observation records.*
+
+<span style="font-size:14px; color:red; font-weight:bold;">
+For these site-surveys, please check the survey start time reported in the Site Conditions file vs the bird observation records. A time entry of NA may mean the file does not have a (site conditions or bird observation) entry for that site-survey. Compare and correct the time discrepancy, if possible. Otherwise, the corresponding observations will be excluded from analyses that include survey start time as a covariate in a considered model.
+</span>
+
+```{r}
+conditions_time <- df_survey_conditions %>%
+  dplyr::select(location_name, event_date, time) %>%
+  dplyr::distinct()
+
+obs_time <- df_initialdat %>%
+  dplyr::select(location_name, event_date, time) %>%
+  dplyr::distinct()
+
+obs_time_mismatch <-
+  dplyr::anti_join(obs_time, conditions_time) %>%
+  dplyr::rename(site_conditions_time = time)
+
+cond_time_mismatch <-
+  dplyr::anti_join(conditions_time, obs_time) %>%
+  dplyr::rename(observation_time = time)
+
+time_mismatch <- dplyr::full_join(obs_time_mismatch, cond_time_mismatch, by = c("location_name", "event_date"))
+
+if(nrow(time_mismatch) > 0) {
+  time_mismatch %>% 
+      DT::datatable(
+    ., 
+    class="compact stripe",
+    rownames= FALSE,
+    extensions = 'Buttons',
+    filter = 'top'
+  )
+  } else {
+  cat("No survey start time mismatch")
+  }
+```
+
+# Count records with unusual count entries
+
+*These bird observation records have zero (0) or NA in the `count` column.*
+
+<span style="font-size:14px; color:red; font-weight:bold;">
+Please fix the `count` entry for the following bird observation records, then re-import the updated bird observations file.
+</span>
+
+```{r}
+fix_counts <- df_initialdat %>%
+  dplyr::filter(is.na(count) | count == 0) %>%
+  dplyr::select(unit_code, location_name, event_date, species_code, scientific_name, common_name, count) 
+
+if(nrow(fix_counts) > 0) {
+  fix_counts %>% 
+  DT::datatable(
+    ., 
+    class="compact stripe",
+    rownames= FALSE,
+    extensions = 'Buttons',
+    filter = 'top'
+  )
+} else {
+  cat("No unusual count entries")
+}
+```
+
+# Count records with missing (important) information
+
+*These bird observation records have a missing value (NA) in at least one of these (important) columns: location_name, event_date, species_code, time_bin_id, distance_bin_id, count, data_status.*
+
+<span style="font-size:14px; color:red; font-weight:bold;">
+Please add the missing information in the following bird observation records, then re-import the updated bird observations file. Only bird observation records with complete (important) information will be included in the final data set used in analyses.
+</span>
+
+```{r}
+incomplete_records <- df_initialdat %>%
+  dplyr::select(location_name, event_date, species_code, distance_bin_id, count, data_status) %>%
+  dplyr::filter(!complete.cases(.)) %>%
+  dplyr::arrange(location_name, event_date, species_code)
+
+if(nrow(incomplete_records) > 0) {
+  incomplete_records %>% 
+  DT::datatable(
+    ., 
+    class="compact stripe",
+    rownames= FALSE,
+    extensions = 'Buttons',
+    filter = 'top'
+  )
+} else {
+  cat("No count record is missing important information")
+}
+```

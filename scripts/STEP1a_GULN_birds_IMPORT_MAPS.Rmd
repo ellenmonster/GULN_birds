@@ -1,0 +1,465 @@
+---
+title: "GULN Birds - Point Count Maps"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    df_print: kable
+    fig_caption: yes
+    highlight: haddock
+    keep_md: yes
+    smart: no
+    theme: journal
+    number_sections: yes
+    toc: yes
+    toc_float: 
+      collapse: false
+    toc_depth: 3
+editor_options: 
+  chunk_output_type: console
+---
+```{r setup, include = FALSE}
+rm(list=ls())
+
+pkgs <- c("tidyverse", "here", "magrittr", "sf", "rmapshaper", "leaflet", "geojsonsf")
+installed_pkgs <- pkgs %in% installed.packages()
+if (length(pkgs[!installed_pkgs]) > 0) install.packages(pkgs[!installed_pkgs], repos = "https://cloud.r-project.org" , dep=TRUE)
+invisible(lapply(pkgs, library, character.only = TRUE))
+
+knitr::opts_chunk$set(
+  echo = FALSE, 
+  warning = FALSE, 
+  message = FALSE, 
+  out.width = "100%", 
+  cache = FALSE, 
+  tidy = TRUE)
+
+zones_file <- "ZonalStats_VegDensity1to5mAgl_AtGulnBirdMonPts.csv"
+corrected_latlong_file <- "gulnBirdMonSit_FeaturesToJSO.geojson"
+active_points_file <- "GULN_Active_Monitoring_Points_2022.csv"
+```
+
+```{r function_maps, include = FALSE, warning = FALSE, message = FALSE}
+### FUNCTIONS ----
+FuncCalcBuffer <- function(buff_dist, point_buff) {
+    
+    # Calculate intersection of buffered point with veg polygons
+    veg_buff <- st_intersection(park_map, point_buff)
+    
+     # calculate area of each simple veg class in each buffered point area
+    veg_buff_prop <- veg_buff %>% 
+      mutate(
+        intersect_area = st_area(.) %>% as.numeric()) %>%
+      as_tibble() %>% 
+      group_by(location_name, simp_veg) %>% 
+      summarize(
+        area_by_veg = sum(intersect_area)) %>% 
+      dplyr::mutate(
+        buffer_m = buff_dist,
+        num_veg = length(unique(simp_veg)),
+        prop_veg = 100*round(area_by_veg/sum(area_by_veg, na.rm = TRUE), 2),
+        sum_area = sum(area_by_veg), # some point buffers will be incomplete 
+        dom_veg = simp_veg[area_by_veg == max(area_by_veg, na.rm = TRUE)],
+        dom_veg_prop = prop_veg[simp_veg == dom_veg]) %>%
+      dplyr::filter(prop_veg != 0) %>%
+      dplyr::mutate(
+        veg_string = paste(paste0(simp_veg, "(", prop_veg, "%)", collapse =", "))) %>%
+      tidyr::pivot_wider(id_cols = -area_by_veg, names_from = simp_veg, values_from = prop_veg)
+      }
+
+### Create the data frame of location with correct UTM information ----
+
+# df_active <- read_csv(here::here("Data_in", active_points_file)) %>%
+#   janitor::clean_names("snake") %>%
+#   dplyr::mutate(unit_code = recode(unit_code, 'VICKS' = 'VICK', 'JELA_BA' = 'JELA', 'GUIS_FL' = 'GUIS-FL', 'GUIS_MS' = 'GUIS-MS', 'BITH_TC' = 'BITH')) %>%
+#   dplyr::select(-latitude, -longitude)
+# saveRDS(df_active, here::here("Data_out", "df_active.RDS"))
+# 
+# corrected_latlong <- geojson_sf(here::here("Data_in", corrected_latlong_file)) %>% janitor::clean_names("snake")
+# 
+# df_zones <- read_csv(here::here("Data_in", zones_file)) %>%
+#   janitor::clean_names("snake") %>%
+#   dplyr::select(-oid, -zone_code) %>%
+#   dplyr::mutate(loc_id = sub("_[^_]+$", "", zone)) %>%
+#   dplyr::left_join(corrected_latlong %>% dplyr::select(latitude, longitude, loc_id), by = "loc_id") %>% # add the corrected utm information
+#   tidyr::separate(zone, c("temp_unit", "temp_loc", "buffer_m")) %>%
+#   dplyr::mutate(temp_unit = toupper(temp_unit)) %>%
+#   dplyr::mutate(
+#     mean = round(mean, 3),
+#     std = round(std, 3),
+#     buffer_m = as.integer(buffer_m),
+#     unit_code = case_match(
+#       temp_unit,
+#       "BP" ~ "JELA",
+#       "FL" ~ "GUIS-FL",
+#       "MS" ~ "GUIS-MS",
+#       "BA" ~ "PAAL",
+#       "RA" ~ "SAAN",
+#       "MI" ~ "SAAN",
+#       "TC" ~ "BITH",
+#       .default = "VICK"),
+#     temp_unit = case_match(
+#     temp_unit,
+#     "BA" ~ "PAAL",
+#     "RA" ~ "SAAN",
+#     "MI" ~ "SAAN",
+#     "BP" ~ "BP ",
+#     "FL" ~ "GUISFL", 
+#     "MS" ~ "GUISMS",
+#     .default = temp_unit),
+#     temp_loc2 = gsub('(0{1,})([0-9]{2})', '\\2\\3', temp_loc), # for 3-digit values with leading zero, remove the zero
+#     location_name = paste0(temp_unit, temp_loc2)) %>%
+#   dplyr::select(unit_code, location_name, buffer_m, prop_understory_cover = mean, understory_cover_sd = std, lidar_count = count, lidar_area = area, latitude, longitude, geometry) %>%
+#   dplyr::filter(location_name %in% df_active$location_name)
+# 
+# saveRDS(df_zones, here::here("Data_out","df_zones.RDS"))
+
+
+### Create the maps ----
+maps_list <- list()
+sf_list <- list()
+
+df_zones <- readRDS(here::here("Data_out", "df_zones.RDS")) # site locations, output from STEP1a
+  
+# First, the GULN map
+guln_sf <- sf::st_read(here::here("Data_in", "imNetworks_guln", "imNetworks_guln.shp"))  
+guln_sf <- sf::st_transform(guln_sf, crs = 4326) # transform to WGS84 latitude-longitude coordinate system
+sf_list[["GULN"]] <- guln_sf
+
+final_guln_map <- leaflet() %>% addPolygons(data = guln_sf, fillOpacity = 0)
+maps_list[["GULN"]] <- final_guln_map
+
+# Then, the individual park maps
+for (unit in c("BITH", "GUIS-FL", "GUIS-MS", "JELA", "PAAL", "SAAN", "VICK")) {
+  
+  if(unit == "VICK") {
+  sf_use_s2(FALSE)
+  } else {
+    sf_use_s2(TRUE)
+    }
+  # could be problematic for things like calculating buffers, if distances are large???
+
+  # Map of point count locations ----
+  bird_locs <- df_zones %>%
+  dplyr::filter(unit_code == unit) 
+  # %>%
+  # dplyr::mutate(border_col = case_when(hab_type_200 == "open" ~ "#B8DE29FF", # light green
+  #                                      hab_type_200 == "shrub" ~ "#56C667FF", # medium green
+  #                                      hab_type_200 == "forest" ~ "#1F968BFF") # dark green
+  # )
+
+ bird_locs_sf <- sf::st_as_sf(bird_locs, coords = c("longitude", "latitude"), crs =st_crs(4326))
+
+  # Map from shapefiles ----
+  bird_map <- sf::st_read(here::here("Data_in", paste0(ifelse(unit %in% c("GUIS-FL", "GUIS-MS"), "guis", tolower(unit)), "_vegpoly"), paste0(ifelse(unit %in% c("GUIS-FL", "GUIS-MS"), "guis", tolower(unit)), "_vegpoly.shp")))
+  bird_map_simple = rmapshaper::ms_simplify(bird_map, keep = 1000000/as.numeric(object.size(bird_map)))# this is better than sf::st_simplify, which leaves polygon gaps and overlaps
+  
+  park_map <- sf::st_transform(bird_map_simple, crs = 4326) # transform to WGS84 latitude-longitude coordinate system
+
+  # Simplify vegetation types for easier plotting, differs for each park unit ----
+  # > SAAN
+  if(unit == "SAAN") {
+    developed <- c("Commercial Property", "Park Facilities and Buildings", "Heavy Industry", "Residential Property", "Mixed Residential and Industry", "Farm and Ranch Buildings")
+    open <- c("Introduced Grassland", "Grassland", "Forbland", "Communications and Utilities Corridors")
+    mudflat <- c("Mud Flats")
+    open_developed <- c("Parks and Ballfields", "Golf Course", "Cemetary", "Transitional Lands")
+    shrub <- c("Deciduous Shrubland", "Evergreen Shrubland")
+    forest <- c("Deciduous Woodland", "Evergreen Woodland", "Deciduous Forest")
+    road_trail <- c("Roads and Trails")
+    water <- c("Stream and Rivers", "Ponds", "Canals and Irrigation Ditches", "Sewage and Manure Ponds", "Ponds")
+    crop <- c("Fields and Croplands", "Pecan Orchards")
+
+    park_map %<>%
+      dplyr::mutate(simp_veg = case_when(LUC_II_GEN %in% open ~ "Open",
+                                         LUC_II_GEN %in% mudflat ~ "Mud Flats",
+                                         LUC_II_GEN %in% shrub ~ "Shrub",
+                                         LUC_II_GEN %in% forest ~ "Forest",
+                                         LUC_II_GEN %in% water ~ "Water",
+                                         LUC_II_GEN %in% crop ~ "Agricultural",
+                                         LUC_II_GEN %in% open_developed ~ "Open - Developed",
+                                         LUC_II_GEN %in% road_trail ~ "Roads and Trails",
+                                         LUC_II_GEN %in% developed ~ "Developed",
+                                         TRUE ~ "Other"),
+                    fill_col = case_when(simp_veg == "Open" ~ "#B8DE29FF", # light green
+                                         simp_veg == "Mud Flats" ~ "#8C510A", # brown
+                                         simp_veg == "Shrub" ~ "#56C667FF", # medium green
+                                         simp_veg == "Forest" ~ "#1F968BFF", # dark green
+                                         simp_veg == "Water" ~ "#C7EAE5", # light blue
+                                         simp_veg == "Agricultural" ~ "#DFC27D", # light brown
+                                         simp_veg == "Open - Developed" ~ "#E6E6E6", # light gray
+                                         simp_veg == "Roads and Trails" ~ "#440154FF", # dark purple
+                                         simp_veg == "Developed" ~ "#4D4D4D", # dark gray
+                                         simp_veg == "Other" ~ "#FDBB84")) %>% # light orange
+      dplyr::mutate(
+        popup_text = paste0("<span style='font-size:12px; font-weight:bold;'>", simp_veg, "</span><br>AREA: ", AREA, "<br>MAP CLASS: ", MAP_CLASS, "<br>DESCRIPTOR: ", MAP_DESC, "<br>CLASS: ", CLASS, "<br>LUC_II_GEN: ", LUC_II_GEN, "<br>COMMENTS: ", COMMENTS))
+    }
+
+  # > BITH
+  if(unit == "BITH") {
+    park_map %<>%
+      dplyr::rename(simp_veg = Physiognom) %>%
+      dplyr::mutate(fill_col = case_when(simp_veg == "Herbaceous Vegetation" ~ "#B8DE29FF", # light green
+                                         simp_veg == "Sparse Vegetation" ~ "#8C510A", # brown
+                                         simp_veg %in% c("Shrublands", "Shrubland") ~ "#56C667FF", # medium green
+                                         simp_veg == "Woodland and Forest" ~ "#1F968BFF", # dark green
+                                         simp_veg == "Water" ~ "#C7EAE5", # light blue
+                                         simp_veg == "Agriculture" ~ "#DFC27D", # light brown
+                                         simp_veg == "Developed" ~ "#4D4D4D")) %>% # light orange
+      dplyr::mutate(
+        popup_text = paste0("<span style='font-size:12px; font-weight:bold;'>", simp_veg, "</span><br>AREA: ", SHAPE_Area, "<br>MAP CLASS 2: ", Map_Clas_2, "<br>NOTES: ", Notes))
+}
+
+  # > JELA
+  if(unit == "JELA") {
+    open <- c("Ruderal Herbaceous Vegetation", "Cultural Vegetation")
+    marsh <- unique(park_map$MC_CatName)[grep("Marsh$", unique(park_map$MC_CatName))]
+    forest <- c(unique(park_map$MC_CatName)[grep("Forest$", unique(park_map$MC_CatName))], "Bald-cypress Marsh Woodland")
+    water <- c("Water")
+
+    park_map %<>%
+      dplyr::mutate(simp_veg = case_when(MC_CatName %in% open ~ "Open",
+                                         MC_CatName %in% marsh ~ "Marsh",
+                                         MC_CatName %in% forest ~ "Forest",
+                                         MC_CatName %in% water ~ "Water",
+                                         TRUE ~ "Other"),
+                    fill_col = case_when(simp_veg == "Open" ~ "#B8DE29FF", # light green
+                                         simp_veg == "Marsh" ~ "#8C510A", # brown
+                                         simp_veg == "Forest" ~ "#1F968BFF", # dark green
+                                         simp_veg == "Water" ~ "#C7EAE5", # light blue
+                                         simp_veg == "Other" ~ "#FDBB84")) %>% # light orange
+      dplyr::mutate(
+        popup_text = paste0("<span style='font-size:12px; font-weight:bold;'>", simp_veg, "</span><br>MC_CATNAME: ", MC_CatName, "<br>MC_COVERMO: ", MC_CoverMo, "<br>AREA: ", Area))
+    }
+
+  # > VICK
+  if(unit == "VICK") {
+    open <- c("Grassland alliance")
+    developed <- c("Developed-bare")
+    shrub <- c("Smooth sumac shrubland")
+    forest <- c("Sweetgum-pecan-water oak association", "Loblloly pine planted association", "Sycamore mix association", "Cherrybark-water oak association", "Tulip tree-oak association", "Black willow association", "Black locust association", "Paper mulberry association")
+    water <- c("Water")
+    kudzu_bamboo <- c(unique(park_map$DESCRIPTOR)[grep("Kudzu",
+                                                        unique(park_map$DESCRIPTOR))], "Bamboo")
+
+    park_map %<>%
+      dplyr::filter(!is.na(DESCRIPTOR)) %>%
+      dplyr::mutate(simp_veg = case_when(DESCRIPTOR %in% open ~ "Open",
+                                         DESCRIPTOR %in% kudzu_bamboo ~ "Kudzu or Bamboo",
+                                         DESCRIPTOR %in% shrub ~ "Shrub",
+                                         DESCRIPTOR %in% forest ~ "Forest",
+                                         DESCRIPTOR %in% water ~ "Water",
+                                         DESCRIPTOR %in% developed ~ "Developed",
+                                         TRUE ~ "Other"),
+                    fill_col = case_when(simp_veg == "Open" ~ "#B8DE29FF", # light green
+                                         simp_veg == "Kudzu or Bamboo" ~ "#E6E6E6", # light gray
+                                         simp_veg == "Shrub" ~ "#56C667FF", # medium green
+                                         simp_veg == "Forest" ~ "#1F968BFF", # dark green
+                                         simp_veg == "Water" ~ "#C7EAE5", # light blue
+                                         simp_veg == "Developed" ~ "#4D4D4D", # dark gray
+                                         simp_veg == "Other" ~ "#FDBB84")) %>% # light orange
+      dplyr::mutate(
+        popup_text = paste0("<span style='font-size:12px; font-weight:bold;'>", simp_veg, "</span><br>DESCRIPTOR: ", DESCRIPTOR, "<br>ACRES: ", Acres))
+    }
+
+  # > PAAL
+  if(unit == "PAAL") {
+    bare <- c("Bare Soils")
+    open <- c("Dead and Sparse grasses", unique(park_map$descriptio)[grep("Prairie$", unique(park_map$descriptio))])
+    shrub <- c("Tamaulipan Brush")
+    forest <- c("Mesquital Forest", "Huisachal")
+
+    park_map %<>%
+      dplyr::mutate(simp_veg = case_when(descriptio %in% open ~ "Open",
+                                         descriptio %in% bare ~ "Bare Soils",
+                                         descriptio %in% shrub ~ "Shrub",
+                                         descriptio %in% forest ~ "Forest",
+                                         TRUE ~ "Other"),
+                    fill_col = case_when(simp_veg == "Open" ~ "#B8DE29FF", # light green
+                                         simp_veg == "Bare Soils" ~ "#DFC27D", # light brown
+                                         simp_veg == "Shrub" ~ "#56C667FF", # medium green
+                                         simp_veg == "Forest" ~ "#1F968BFF", # dark green
+                                         simp_veg == "Other" ~ "#FDBB84")) %>% # light orange
+      dplyr::mutate(
+        popup_text = paste0("<span style='font-size:12px; font-weight:bold;'>", simp_veg, "</span><br>AREA: ", AREA, "<br>DESCRIPTOR: ", descriptio))
+  }
+
+    # > GUIS
+    if(unit %in% c("GUIS-FL", "GUIS-MS")) {
+
+      park_map %<>%
+        dplyr::rename(simp_veg = Physiognom) %>%
+        dplyr::mutate(fill_col = case_when(simp_veg == "Herbaceous Vegetation" ~ "#B8DE29FF", # light green
+                                           simp_veg == "Sparse Vegetation" ~ "#8C510A", # brown
+                                           simp_veg == "Shrublands" ~ "#56C667FF", # medium green
+                                           simp_veg == "Woodlands and Forest" ~ "#1F968BFF", # dark green
+                                           simp_veg == "Water" ~ "#C7EAE5", # light blue
+                                           simp_veg == "Wetlands" ~ "#DFC27D", # light brown
+                                           simp_veg == "Developed" ~ "#4D4D4D")) %>% # light orange
+        dplyr::mutate(
+        popup_text = paste0("<span style='font-size:12px; font-weight:bold;'>", simp_veg, "</span><br>ACRES: ", Acres, "<br>MAP_CLAS_1: ", Map_Clas_1, "<br>NOTES: ", Notes))
+    }
+
+    # Check/fix problems with self-intersections
+    if(any(st_is_valid(park_map) == FALSE)) {
+      temp_sf <- sf::st_make_valid(park_map)
+      park_map <- temp_sf
+      }
+    
+    # Create legend
+    bird_legend <- unique(data.frame(simp_veg = park_map$simp_veg, fill_col = park_map$fill_col))
+  
+    # Create various point buffers and calculate % veg
+    bird_locs_proj <- sf::st_transform(bird_locs_sf, crs = 3857) # transform to projected equivalent of WGS84. Can only generate buffers on projected coordinate systems, not GCS.
+    
+    # Calculate intersection of buffered point with veg polygons. Doing this inefficiently.
+    
+    # Buffer 50m
+    bird_locs_50m <- sf::st_transform(st_buffer(bird_locs_proj, dist = 50), crs = st_crs(park_map)) # draw the buffer and convert to park map coord system
+    b50_dat <- FuncCalcBuffer(buff_dist = 50, point_buff = bird_locs_50m)
+    
+    # Buffer 100m
+    bird_locs_100m <- sf::st_transform(st_buffer(bird_locs_proj, dist = 100), crs = st_crs(park_map)) # draw the buffer and convert to park map coord system
+    b100_dat <- FuncCalcBuffer(buff_dist = 100, point_buff = bird_locs_100m)
+    
+    # Buffer 200m
+    bird_locs_200m <- sf::st_transform(st_buffer(bird_locs_proj, dist = 200), crs = st_crs(park_map)) # draw the buffer and convert to park map coord system
+    b200_dat <- FuncCalcBuffer(buff_dist = 200, point_buff = bird_locs_200m)
+    
+    buff_df <- dplyr::bind_rows(b50_dat, b100_dat, b200_dat)
+    
+    hover_df <- buff_df %>%
+      dplyr::group_by(location_name) %>%
+      dplyr::mutate(
+        hover_text = paste0("<span style='font-size:12px; font-weight:bold;'>", location_name, "</span><br><span style='font-size:12px; font-weight:bold;'>", dom_veg[buffer_m == 50], " (", dom_veg_prop[buffer_m == 50], "%) / ", dom_veg[buffer_m == 100], " (", dom_veg_prop[buffer_m == 100], "%) / ", dom_veg[buffer_m == 200], " (", dom_veg_prop[buffer_m == 200], "%) </span><br>50M RADIUS:  ", veg_string[buffer_m == 50], "<br>100M RADIUS:  ", veg_string[buffer_m == 100], "<br>200M RADIUS:  ", veg_string[buffer_m == 200])
+      )
+    
+    bird_locs_100m %<>%
+      dplyr::left_join(hover_df, by = c("location_name", "buffer_m"))
+
+       # Final map for leaflet. Microbenchmark mean 113, median 108, max 204. This is four times faster than tmap.
+
+# Don't save leaflet object with provider tiles b/c that really needs to be added to the map at the time it's plot (or will get dependency error)
+    
+# Set initial map zoom
+    
+    bbox <- st_bbox(bird_locs_200m) %>% as.vector()
+        
+(bird_final_map <- leaflet() %>%
+  addMapPane("pane_unit", zIndex = 210) %>% 
+  addMapPane("pane_points200m", zIndex = 230) %>%
+  addMapPane("pane_points100m", zIndex = 240) %>%
+  addPolygons(data = park_map, label = ~simp_veg, popup = ~popup_text, color = ~fill_col, fillOpacity = 1, group="park veg", options = pathOptions(pane = "pane_unit")) %>%
+  addPolygons(data = bird_locs_100m, label = ~location_name, popup =~hover_text, weight = 1, color = "white", opacity = 0.7, group = "100-m radius", options = pathOptions(pane = "pane_points100m")) %>%
+  addPolygons(data = bird_locs_200m, label = ~location_name, weight = 1, color = "white", opacity = 0.4, group = "200-m radius", options = pathOptions(pane = "pane_points200m")) %>%
+  fitBounds(bbox[1], bbox[2], bbox[3], bbox[4]) %>%
+  addScaleBar() %>%
+  addControl(unit, position = "topleft") %>% # add 4-letter UNIT code on map)
+    addLegend(
+  position = "topleft",
+  colors = bird_legend$fill_col,
+  labels = bird_legend$simp_veg, opacity = 1)
+)
+    sf_list[[unit]] <- park_map
+    maps_list[[unit]] <-bird_final_map
+    maps_list[[paste0(unit, "_100m")]] <- bird_locs_100m
+    maps_list[[paste0(unit, "_dat")]] <- buff_df
+}
+saveRDS(sf_list, here::here("Data_out", "sf_list.RDS"))
+  saveRDS(maps_list, here::here("Data_out", "maps_list.RDS"))
+```
+
+# Maps of point locations
+
+* These are active point count locations for GULN bird monitoring.
+
+* Maps have been simplified (some fine details of habitat polygons may be lost) to speed processing and reduce file size. The larger the original map (in terms of data bytes, the more the displayed map has been simplified)
+
+* Click on a point for more habitat information
+
+<span style="font-size:14px; color:red; font-weight:bold;">
+Please check that locations are correct and all accounted for. Points are NOT scaled to size. Zoom in and use the map scale for size reference.
+</span>
+
+## BITH
+```{r}
+maps_list[["BITH"]] %>%
+  addProviderTiles("Esri.WorldImagery", options = providerTileOptions(noWrap = TRUE), group="Satellite") %>%
+    addProviderTiles("OpenStreetMap", group = "OpenStreetMap") %>%
+  addLayersControl(
+    baseGroups = c("Satellite", "OpenStreetMap"),
+    overlayGroups = c("park veg", "100-m radius", "200-m radius"),
+    position = "topright"
+  )
+
+```
+
+## GUIS-FL
+```{r}
+maps_list[["GUIS-FL"]] %>%
+  addProviderTiles("Esri.WorldImagery", options = providerTileOptions(noWrap = TRUE), group="Satellite") %>%
+    addProviderTiles("OpenStreetMap", group = "OpenStreetMap") %>%
+  addLayersControl(
+    baseGroups = c("Satellite", "OpenStreetMap"),
+    overlayGroups = c("park veg", "100-m radius", "200-m radius"),
+    position = "topright"
+  )
+```
+
+## GUIS-MS
+```{r}
+maps_list[["GUIS-MS"]] %>%
+  addProviderTiles("Esri.WorldImagery", options = providerTileOptions(noWrap = TRUE), group="Satellite") %>%
+    addProviderTiles("OpenStreetMap", group = "OpenStreetMap") %>%
+  addLayersControl(
+    baseGroups = c("Satellite", "OpenStreetMap"),
+    overlayGroups = c("park veg", "100-m radius", "200-m radius"),
+    position = "topright"
+  )
+```
+
+## JELA
+```{r}
+maps_list[["JELA"]] %>%
+  addProviderTiles("Esri.WorldImagery", options = providerTileOptions(noWrap = TRUE), group="Satellite") %>%
+    addProviderTiles("OpenStreetMap", group = "OpenStreetMap") %>%
+  addLayersControl(
+    baseGroups = c("Satellite", "OpenStreetMap"),
+    overlayGroups = c("park veg", "100-m radius", "200-m radius"),
+    position = "topright"
+  )
+```
+
+## PAAL
+```{r}
+maps_list[["PAAL"]] %>%
+  addProviderTiles("Esri.WorldImagery", options = providerTileOptions(noWrap = TRUE), group="Satellite") %>%
+    addProviderTiles("OpenStreetMap", group = "OpenStreetMap") %>%
+  addLayersControl(
+    baseGroups = c("Satellite", "OpenStreetMap"),
+    overlayGroups = c("park veg", "100-m radius", "200-m radius"),
+    position = "topright"
+  )
+```
+
+## SAAN
+```{r}
+maps_list[["SAAN"]] %>%
+  addProviderTiles("Esri.WorldImagery", options = providerTileOptions(noWrap = TRUE), group="Satellite") %>%
+    addProviderTiles("OpenStreetMap", group = "OpenStreetMap") %>%
+  addLayersControl(
+    baseGroups = c("Satellite", "OpenStreetMap"),
+    overlayGroups = c("park veg", "100-m radius", "200-m radius"),
+    position = "topright"
+  )
+```
+
+## VICK
+```{r}
+maps_list[["VICK"]] %>%
+  addProviderTiles("Esri.WorldImagery", options = providerTileOptions(noWrap = TRUE), group="Satellite") %>%
+    addProviderTiles("OpenStreetMap", group = "OpenStreetMap") %>%
+  addLayersControl(
+    baseGroups = c("Satellite", "OpenStreetMap"),
+    overlayGroups = c("park veg", "100-m radius", "200-m radius"),
+    position = "topright"
+  )
+```

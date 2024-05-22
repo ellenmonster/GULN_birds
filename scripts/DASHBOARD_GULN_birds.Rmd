@@ -1,0 +1,1903 @@
+---
+title: "GULN birds"
+output:
+  flexdashboard::flex_dashboard:
+    theme: yeti
+    orientation: columns
+runtime: shiny
+---
+```{r setup}
+# >>>>>>>>>>>>> PICK UP FROM HERE. 
+# > FIX COMMON SPECIES COLORING FOR GUIS
+# > For distance detection function, calculate the "midpoint" correctly, based on area of the radius
+# > Instead of raw data page for detection patterns, should have the big summary table that indicates also tot counts and decline-or-not (color-coded). <<<<
+# > % area should also say how much of radius circle is in park--b/c habitat info by radius only applies to what is actually part of the park!
+# >>>>> Add "model fit" lines to detection patterns (e.g., from package Distance??)
+# >>>>> Allow combining first and second distance plots
+# > For covariate detection plots, facet labels should add the category. Blue title should case_when for dist_time_split. Add blue title for every page. Figure out how to fit exponential, etc. functions to distance and time detection patterns. attr(cov_label use for facet labels)
+# > Need to confirm the maps are CORRECT --ESP BUFFERS! (problems with switching btwn GCS and projected?)
+# > Heatmaps need to show ALL locs on y-axis
+# > Heatmap sizes not good
+# > Covariate relationships--fix the numeric plots
+
+##### TO FIX!!!
+# > Maps seem to be linked and affecting each other
+
+rm(list=ls())
+
+pkgs <- c(
+  "shiny", 
+  "knitr", 
+  "flexdashboard", 
+  "here", 
+  "forcats",
+  "tidyverse", 
+  "magrittr", 
+  "lubridate", 
+  "scales", 
+  "patchwork",
+  "plotly",
+  "reactable", 
+  "htmltools", 
+  "sparkline",
+  "DT",
+  "data.table",
+  "leaflet",
+  "crosstalk",
+  "sf") # updated sf version creates some error with tibbles, and apparently need to load the package even though it's only indirectly called. BUT when I load this package and include the last page of dashboard, then other pages don't work
+
+installed_pkgs <- pkgs %in% installed.packages()
+if (length(pkgs[!installed_pkgs]) > 0) install.packages(pkgs[!installed_pkgs], repos = "https://cloud.r-project.org" , dep=TRUE) 
+invisible(lapply(pkgs, library, character.only = TRUE))
+
+rv <- reactiveValues(
+  df_common = NULL,
+  one_park_dat = NULL,
+  one_species_dat = NULL,
+  one_species_indiv_detect = NULL,
+  sel_species_parks = NULL,
+  species_map = NULL,
+  sel_dist_parks = NULL,
+  species_dist_dat = NULL,
+  dist_plot_dat = NULL,
+  time_plot_dat = NULL,
+  detect_by_loc = NULL,
+  linked_dist_map = NULL,
+  linked_dist_obs_dat = NULL,
+  linked_dist_plot = NULL,
+  dist_detect_summary = NULL) # clear everything
+
+```
+
+```{r import}
+# Read in formatted data ----
+
+# Important changes:
+# > recoded sky conditions so order is fog < drizzle < rain, instead of rain < fog < drizzle
+
+dat_list <- list()
+dat_list$df_finaldat <- readRDS(here::here("Data_out", "df_finaldat.RDS")) %>% 
+  dplyr::mutate(
+    species_codename = paste0(common_name, " (", species_code, ")"), # This gives the individual data records, including detection distance and detection time
+    time_bin_id = as.integer(time_bin_id),
+    time_bin_split = case_when(
+      time_bin_id %in% 0:1 ~ "0-2min",
+      time_bin_id %in% 2:3 ~ "2-4min",
+      time_bin_id %in% 4:5 ~ "4-6min",
+      time_bin_id %in% 6:7 ~ "6-8min",
+      time_bin_id %in% 8:9 ~ "8-10min"))
+dat_list$df_locs <- readRDS(here::here("Data_out", "df_locs.RDS")) # site locations
+dat_list$df_buffer_info <- readRDS(here::here("Data_out", "df_buffer_info.RDS")) # info on habitat within various distances from survey point center
+dat_list$df_survey_conditions <- readRDS(here::here("Data_out", "df_survey_conditions.RDS")) %>% dplyr::filter(!is.na(time)) # event covariate data <<<<< INITIAL FORMATTING SHOULD HAVE TAKEN CARE OF REMOVING RECORDS WITH NO TIME ENTRY
+df_full_obs <- readRDS(here::here("Data_out", "df_full_obs.RDS")) %>% dplyr::filter(!yr_visit %in% c("2014_2", "2016_2", "2018_2")) # <<<<<<<<<<<<<<<< BITH HAS ONE LOC (TC29) SURVEYED TWICE IN 2018, SO IT'S THE ONLY SITE WITH A YR_VISIT OF 2018_2 AND TC39 AS 2016_2. NEED TO CHECK ON THIS, BUT EXCLUDE IT FOR NOW.
+maps_list <- readRDS(here::here("Data_out", "maps_list.RDS"))
+
+
+
+# Combine summary observation and covariate data ----
+# This gives the total detections for a survey event and species, along with the covariates for that survey event
+dat_list$df_full_obs_cov <- df_full_obs %>%
+  dplyr::left_join(dat_list$df_locs %>% dplyr::select(-map_class, -physiognomy, -unit_code, -latitude, -longitude, -geometry), by = "location_name") %>%
+  dplyr::left_join(dat_list$df_survey_conditions %>% dplyr::select(location_name, event_date, wk, hrs_since_rise, julian_prop, weather_wind, weather_wind_num, weather_temperature, weather_sky, weather_sky_revised_num, weather_noise, weather_noise_num), by = c("location_name", "event_date")) %>%
+  dplyr::mutate(
+    species_codename = paste0(common_name, " (", species_code, ")"),
+    hover_text = paste0("<span style='font-size:12px; font-weight:bold;'>", unit_code, " ", yr_visit, "<br>", species_codename, "</span><br>Location: ", location_name, "<br>Habitat Type (200m): ", hab_type_200, "<br>Dominant Veg (200m): ", paste0(dom_veg_200, "(", dom_veg_prop_200, "%)"), "<br>Survey Date: ", event_date, "<br># of Individuals: ", sum_indiv))
+
+dat_list$events <- dat_list$df_full_obs_cov %>% dplyr::select(unit_code, location_name, event_date, yr_visit) %>% dplyr::distinct() %>% dplyr::arrange(unit_code, event_date)
+# Park maps points
+temp_map_counts <- dat_list$df_full_obs_cov %>%
+  dplyr::select(unit_code, location_name, species_codename, yr, event_date, sum_indiv) %>%
+  dplyr::group_by(unit_code, location_name, species_codename) %>%
+  dplyr::summarize(
+    first_survey_yr = as.character(min(yr, na.rm = TRUE)),
+    last_survey_yr = as.character(max(yr, na.rm = TRUE)),
+    num_surveys = length(unique(event_date)),
+    detections_per_survey = round(mean(sum_indiv, na.rm = TRUE), 1)
+  )
+
+# Summary counts ----
+
+# Only makes sense to consider survey round totals since 2019 b/c prior to that, only a subset of locations may have been surveyed in any year
+calc_recent_surv_round <- dat_list$df_full_obs_cov %>%
+  dplyr::filter(yr >=2019) %>%
+  dplyr::group_by(unit_code, species_code, species_codename, yr_visit) %>%
+  dplyr::summarize(
+    recent_surv_round_tot = sum(sum_indiv, na.rm = TRUE)) %>%
+  dplyr::group_by(unit_code, species_code, species_codename) %>%
+  dplyr::summarize(
+    recent_surv_round_avg = round(mean(recent_surv_round_tot, na.rm = TRUE), 1)
+  )
+
+species_sparkbar <- dat_list$df_full_obs_cov %>%
+  dplyr::group_by(unit_code, species_code, yr) %>%
+  dplyr::arrange(unit_code, species_code, yr) %>%
+  dplyr::summarize(
+    avg_surv_detect = round(mean(sum_indiv, na.rm = TRUE), 2)) %>%
+  dplyr::mutate(
+    spark_avg_yr = list(avg_surv_detect)) %>%
+  dplyr::select(unit_code, species_code, spark_avg_yr) %>%
+  distinct()
+  
+# This is the for the subtable in the master species summary table
+dat_list$df_detail_species <- dat_list$df_full_obs_cov %>%
+  dplyr::group_by(unit_code, species_code, park_breeding) %>%
+  dplyr::summarize(
+    num_yrs = length(unique(yr)),
+    tot_detect = sum(sum_indiv, na.rm = TRUE), # this is useful for determining which species-parks we have enough data for, for analyses
+    avg_surv_detect = round(mean(sum_indiv, na.rm = TRUE), 2),
+    n_locs = length(unique(location_name)), # this is the number of survey locations at a unit
+    perc_loc_detect = round(100*length(unique(location_name[sum_indiv>0]))/n_locs), # this is the % of survey locations at which the species was detected at least once (ever, since surveys began),=
+    n_surv = n(), # number of survey events (survey event = 10-min point count at a location)
+    perc_surv_detect = round(100*sum(sum_indiv > 0)/n()) # this is the % of survey events in which the species was detected
+    ) %>% 
+  dplyr::ungroup() %>%
+  dplyr::full_join(calc_recent_surv_round, by = c("unit_code", "species_code")) %>%
+  dplyr::left_join(species_sparkbar, by = c("unit_code", "species_code")) %>%
+  dplyr::select(unit_code, species_code, park_breeding, num_yrs, tot_detect, recent_surv_round_avg, n_locs, perc_loc_detect, n_surv, perc_surv_detect, avg_surv_detect, spark_avg_yr)
+
+# This is for the master species summary table 
+dat_list$df_species <- dat_list$df_full_obs_cov %>%
+  dplyr::group_by(unit_code, species_code, scientific_name, common_name, landbird) %>%
+  dplyr::summarize(
+    avg_surv_detect = round(mean(sum_indiv, na.rm = TRUE), 2), # this is the average # of individuals detected per survey event (does not consider how many times a particular location surveyed)
+  ) %>%
+  dplyr::ungroup() %>%
+  tidyr::pivot_wider(names_from = unit_code, values_from = avg_surv_detect, names_prefix = "avg_") %>%
+  dplyr::mutate(across(starts_with("avg_"), ~ifelse(is.na(.x),0,.x))) %>%
+  dplyr::mutate(AVG_PARKS = round(rowMeans(.[grep("avg_", names(.))]), 2)) %>%
+  dplyr::arrange(desc(AVG_PARKS)) %>%
+  dplyr::select(species_code, scientific_name, common_name, landbird, AVG_PARKS, everything())
+  
+# Update reactives
+
+rv$detect_by_loc <- dat_list$df_locs %>%
+  dplyr::select(location_name, latitude, longitude, dom_veg_200, dom_veg_prop_200, hab_type_200) %>%
+  dplyr::right_join(temp_map_counts, by = "location_name") %>%
+  dplyr::mutate(
+    point_text = paste0(location_name, " (", detections_per_survey, " detections/survey)"),
+    point_size = ifelse(detections_per_survey < 0.1, 1, detections_per_survey*10), # set a minimum point size
+    hover_text = paste0("<span style='font-size:12px; font-weight:bold;'>", location_name, " ", species_codename, "</span><br>Habitat: ", hab_type_200, "<br>Detections/Survey: ", detections_per_survey)
+  )
+
+# Commonly detected species. This identifies the 'commonly detected' species to use in analyses, defined as having at least 20 detections per survey round on average, in the years from 2019 on
+temp_df_common <- dat_list$df_full_obs_cov %>%
+  dplyr::filter(yr >=2019) %>%
+  dplyr::mutate(superunit_code = ifelse(unit_code %in% c("GUIS-FL", "GUIS-MS"), "GUIS", unit_code)) %>%
+  dplyr::group_by(superunit_code, species_code, species_codename, yr) %>%
+  dplyr::summarize(yr_tot = sum(sum_indiv, na.rm = TRUE)) %>%
+  dplyr::group_by(superunit_code, species_code, species_codename) %>%
+  dplyr::summarize(avg_yr_detections = mean(yr_tot)) %>%
+  dplyr::filter(avg_yr_detections >= 40) %>%
+  dplyr::select(-avg_yr_detections) %>%
+  dplyr::ungroup()
+
+# Now have to change the GUIS back to subunits
+GUIS_common <- temp_df_common %>%
+  dplyr::filter(superunit_code == "GUIS") %>%
+  dplyr::select(-superunit_code)
+
+GUIS_common_expand <- rbind(
+  GUIS_common %>% dplyr::mutate(unit_code = "GUIS-FL"),
+  GUIS_common %>% dplyr::mutate(unit_code = "GUIS-MS"))
+
+remainder_common <- temp_df_common %>%
+  dplyr::rename(unit_code = superunit_code) %>%
+  dplyr::filter(unit_code != "GUIS")
+  
+rv$df_common <- rbind(
+  GUIS_common_expand,
+  remainder_common) 
+write_csv(isolate(rv$df_common), here::here("Data_out", "common_species_df.csv"))
+
+rm(df_full_obs); rm(calc_recent_surv_round); rm(species_sparkbar); rm(temp_map_counts); 
+
+```
+
+```{r css_and_html}
+tags$style(".chart-stage-flex {
+  overflow: scroll !important;
+}")
+
+tags$style(".map-title {
+           font-size: 22px;
+           font-weight: bold;
+           }")
+
+# Remove the x-axis scrollbar in splitLayout
+tags$style(HTML('.shiny-split-layout>div {overflow: hidden;}'))
+
+# This expands maps to fill screen
+# tags$style("map {
+#            height: calc(100vh - 80px) !important;
+#            }")
+
+# Add left and right margin padding on columns
+tags$style(".dashboard-column {
+    padding-left: 1px;
+    padding-right: 1px;
+}")
+
+tags$style(".reactable {
+font-size: 14px; 
+}") # font size for reactable tables
+
+# Reactable tooltip formatting
+with_tooltip <- function(value, tooltip) {
+  tags$abbr(style = "text-decoration: underline; text-decoration-style: dotted; cursor: help", title = tooltip, value)
+}
+```
+
+```{r functions}
+FuncSpeciesChoices <- function(only_common) {
+  switch(only_common +1, sort(unique(dat_list$df_full_obs_cov$species_codename)), sort(unique(rv$df_common$species_codename)))
+}
+
+FuncParkChoices <- function(only_common, spec) {
+  switch(only_common +1, sort(unique(dat_list$df_full_obs_cov$unit_code[dat_list$df_full_obs_cov$species_codename == spec])), sort(unique(rv$df_common$unit_code[rv$df_common$species_codename == spec])))
+}
+
+FuncYrBoxPlotly <- function(dat, free_y) {
+  
+  # total height
+  num_facet_rows <- length(unique(dat$unit_code))
+  total_page_ht <- 150 + 250 * num_facet_rows + 10 * num_facet_rows
+  
+  # subplot function
+  subplot_box <- . %>% 
+    dplyr::mutate(fit = fitted(loess(sum_indiv ~ yr))) %>%
+    plot_ly(height = total_page_ht) %>%
+    add_trace(x = ~yr, y = ~sum_indiv, type = "box", boxmean = TRUE, color = I("black"), alpha = 0) %>%
+    add_markers(x = ~jitter(yr),  # this is better than boxpoints b/c boxpoints can't have hover info
+                y = ~jitter(sum_indiv),
+                color = I("lightblue"),
+                marker = list(size = 7, opacity = 0.7),
+                text = ~hover_text, 
+                hoverinfo = "text") %>%
+    add_lines(x  = ~yr, y = ~fit, color = I("red")) %>%
+    layout(
+      xaxis = list(
+        title = "Year",
+        tickmode = "array",
+        ticktext = min(dat$yr, na.rm = TRUE):max(dat$yr, na.rm = TRUE),
+        tickvals = min(dat$yr, na.rm = TRUE):max(dat$yr, na.rm = TRUE),
+        range = c(min(dat$yr, na.rm = TRUE)-1, max(dat$yr, na.rm = TRUE)+1),
+        showspikes = TRUE,
+        spikemode  = "across", # draw line across plots and to x-axis
+        spikedash = "solid",
+        spikecolor = "gray",
+        spikesnap = "data",
+        spikethickness = 2
+        ),
+      yaxis = list(
+        title = "Counts per survey",
+        range = c(0, max(dat$sum_indiv, na.rm = TRUE)+1),
+        autorange = ifelse(free_y, TRUE, FALSE),
+        zeroline = T
+      )
+    ) %>%
+  add_annotations(
+    text = ~unique(unit_code), # subplot title
+    x = 0.5,
+    y = 1.02,
+    yref = "paper",
+    xref = "paper",
+    xanchor = "middle",
+    yanchor = "bottom",
+    showarrow = FALSE,
+    font = list(size = 15)
+    )
+  
+  dat %>%
+    dplyr::group_by(unit_code) %>%
+    plotly::do(p = subplot_box(.)) %>%
+    subplot(
+      nrows = NROW(.), 
+      shareX = FALSE,
+      shareY = ifelse(free_y, FALSE, TRUE),
+      titleX = FALSE,
+      titleY = TRUE,
+      margin = c(0.05, 0.05, 0.04, 0.04), # this is the subplot margin, L R T B
+      which_layout = 1) %>%
+    layout(
+      title = paste0("Counts per survey for ", unique(dat$species_codename), ", grouped by park unit and year"),
+      margin = list(l = 75, r = 20,
+                    b = 75, t = 75) # adds space to top and bottom of page
+    ) %>%
+    hide_legend(.)
+}
+
+FuncComboBoxPlotly <- function(dat = NULL, subplot_title = NULL) {
+  
+  p <- ggplot(dat, aes(x = forcats::fct_rev(cov), y = sum_indiv)) + 
+    geom_boxplot(fill = "white", color = "black") +
+    stat_summary(fun = mean, geom = "point", col = "red", size = 2) +
+    geom_jitter(alpha = 0.2, aes(text = hover_text)) +
+    coord_flip() +
+    labs(title = NULL, x = NULL, y = NULL) + 
+    theme_bw(base_size = 12) +  # ggplotly messes up axis title spacing, so better to do that in layout
+    facet_grid(rows = vars(unit_code), scales = "free_x")
+  
+  p1 <- ggplotly(p, height = 250* (length(unique(rv$one_species_dat$unit_code)) + 3)) %>%
+    add_annotations( # x-axis title
+      text = "# of Detections/Survey", 
+      x = 0.5,
+      y = -0.05,
+      yref = "paper",
+      xref = "paper",
+      xanchor = "middle",
+      yanchor = "top",
+      showarrow = FALSE,
+      font = list(size = 14)
+    ) %>%
+    add_annotations( # subplot title
+      text = subplot_title, 
+      x = 0.5,
+      y = 1.03,
+      yref = "paper",
+      xref = "x",
+      xanchor = "middle",
+      yanchor = "bottom",
+      showarrow = FALSE,
+      font = list(size = 16)
+    )
+  
+}
+
+FuncCovPointPlotly <- function(dat) {
+  # Get the data for continuous covariates in long format
+  subdat <- dat %>%
+    dplyr::select(unit_code, yr, location_name, species_codename, event_date, sum_indiv, wk, hrs_since_rise, julian_prop, weather_temperature) %>%
+    tidyr::pivot_longer(cols = c("wk", "hrs_since_rise", "julian_prop", "weather_temperature"), names_to = "covariate_name", values_to = "covariate_value", values_drop_na = TRUE) %>%
+    dplyr::mutate(
+      hover_text = paste0("<span style='font-size:12px; font-weight:bold;'>", unit_code, " ", yr, "<br>", species_codename, "</span><br>", paste0(toupper(covariate_name), ": ", covariate_value), "<br># of Individuals: ", sum_indiv, "<br>Location: ", location_name, "<br>Survey Date: ", event_date))
+  
+  # total height
+  num_facet_rows <- 3
+  total_page_ht <- 150 + 350 * num_facet_rows + 25 * num_facet_rows
+  
+  # subplot function
+  func_subplot_covpoint <- function(plotdat) {
+    
+    plotdat %>%
+    dplyr::group_by(unit_code) %>%
+    dplyr::mutate(fit = fitted(loess(sum_indiv ~ covariate_value))) %>%
+    dplyr::ungroup() %>%
+    plot_ly(height = total_page_ht) %>%
+    add_markers(x = ~jitter(covariate_value), 
+                y = ~jitter(sum_indiv),
+                color = ~unit_code,
+                marker = list(size = 7, opacity = 0.6),
+                text = ~hover_text, 
+                hoverinfo = "text",
+                showlegend = FALSE) %>%
+      add_lines(x= ~covariate_value, y = ~fit, color = ~unit_code, showlegend = TRUE) %>%
+    layout(
+      yaxis = list(
+        title = "Counts per survey"
+      )
+    ) %>%
+  add_annotations(
+    text = switch(
+      unique(as.character(plotdat$covariate_name)),
+      wk = "Week of Year",
+      hrs_since_rise = "Hours Since Sunrise", 
+      julian_prop = "Julian day (as proportion of year)",
+      weather_temperature = "Air Temperature (C)"), # subplot title
+    x = 0.5,
+    y = 1.02,
+    yref = "paper",
+    xref = "paper",
+    xanchor = "middle",
+    yanchor = "bottom",
+    showarrow = FALSE,
+    font = list(size = 15)
+    )
+  }
+      
+  subdat %>%
+    dplyr::group_by(covariate_name) %>%
+    plotly::do(p = func_subplot_covpoint(.)) %>%
+    subplot(
+      nrows = num_facet_rows, 
+      shareX = FALSE,
+      shareY = TRUE,
+      titleX = FALSE,
+      titleY = TRUE,
+      margin = c(0.05, 0.05, 0.04, 0.04), # this is the subplot margin, L R T B
+      which_layout = 1) %>%
+    layout(
+      title = paste0("Counts per survey for ", unique(dat$species_codename), ", grouped by park unit and (binned) continuous covariate level"),
+      margin = list(l = 75, r = 20,
+                    b = 75, t = 75) # adds space to top and bottom of page
+    ) %>%
+    hide_legend(.)
+}
+
+FuncHeatCountPlotly <- function(dat) {
+
+  # x-axis text
+  x_text <- sort(unique(dat$yr_visit))
+  
+  # total height
+total_page_ht <- 150 + 15 * length(unique(dat$location_name)) + 40 * length(unique(dat$unit_code))
+
+# relative heights
+loc_heights <-
+  dat %>% dplyr::group_by(unit_code) %>% summarize(num_locs = n_distinct(location_name)) %>% dplyr::pull(num_locs)+40 
+rel_heights <- proportions(loc_heights)
+
+# create discrete colorbar
+max_count <- max(dat$sum_indiv, na.rm = TRUE)
+vir_colors <- c("#D3D3D3", scales::viridis_pal(direction = -1)(max_count)) # first one is light gray, which is assigned to count = 0
+names(vir_colors) = 0:max_count
+
+Z_Breaks = function(n){ # make the color table
+CUTS = seq(0,1,length.out=n+1)
+rep(CUTS,ifelse(CUTS %in% 0:1,1,2))
+}
+
+color_table <- data.frame(z=Z_Breaks(length(vir_colors)),
+col=rep(vir_colors,each=2),stringsAsFactors=FALSE)
+
+# subplot function
+subplot_counts <- .%>% plot_ly(
+    x = ~yr_visit,
+    y = ~location_name,
+    z = ~sum_indiv,
+    xgap = 1, # adds the white lines btwn heatmap cells
+    ygap = 1,
+    height = total_page_ht,
+    # colorbar(orientation = "h"), # should be available in the next plot_ly package version
+    colorscale = color_table,
+    zmin = 0, 
+    zmax = max_count, # finally figured how to set the colorbar limits
+    type = "heatmap",
+    text = ~hover_text,
+    hoverinfo ="text"
+    ) %>%
+  layout(
+    yaxis = list(
+      title = "Location Name",
+      tickfont = list(size=10),
+      tickprefix = "   " # hack for increasing space between y-axis title and tick labels
+    ),
+    xaxis = list(
+      title = "Survey Round (Year-Visit)",
+      showticklabels = FALSE
+      )) %>%
+  add_annotations(
+    text = ~unique(unit_code),
+    x = 0.5,
+    y = 1.02,
+    yref = "paper",
+    xref = "paper",
+    xanchor = "middle",
+    yanchor = "bottom",
+    showarrow = FALSE,
+    font = list(size = 15)
+    ) %>%
+add_annotations( # hacky way to force x-axis labels on all subplots
+  text = x_text,
+  x = 0:(length(x_text) - 1), # goes from zero to 1 less than last x-axis value
+  y = -0.05,
+  yref = "paper",
+  xref = "x", # this says to use the x-axis as the reference. Necessary to line up the text with the x-axis ticks, which (for categorical data) start at 0
+  xanchor = "middle",
+  yanchor = "top",
+  showarrow = FALSE,
+  font = list(size = 11)
+  )
+
+# subplot view
+template <- merge(unique(dat[c("unit_code", "location_name")]), data.frame(yr_visit = sort(unique(dat$yr_visit))))
+dat %>%
+  dplyr::select(unit_code, location_name, yr_visit, sum_indiv, hover_text) %>%
+  dplyr::right_join(template, by = c("unit_code", "location_name", "yr_visit")) %>%
+  dplyr::mutate(yr_visit = factor(yr_visit)) %>%
+  dplyr::group_by(unit_code) %>%
+  plotly::do(p = subplot_counts(.)) %>%
+  subplot(
+      nrows = NROW(.),
+      shareX = TRUE, # this forces x-axis columns to line up
+      shareY = FALSE,
+      titleX = FALSE, # this doesn't seem to do anything
+      titleY = TRUE,
+      heights = rel_heights,
+      margin = c(0, 0, 0.04, 0.04), # this is the subplot margin, L R T B
+      which_layout = 1) %>%
+  layout(
+    title = paste0("Counts per survey for ", unique(dat$species_codename), ", grouped by point count location and survey round"),
+    margin = list(l = 75, r = 75,
+          b = 75, t = 75) # adds space to top and bottom of page
+  ) %>%
+  hide_colorbar(.)
+}
+
+SubFuncAddPlotly <- function(p = NULL, cov = NULL, x_lab = NULL, y_lab = NULL, p_title = NULL, free_y) {
+    p1 <- p +
+    labs(title = NULL, x = NULL, y = NULL) +
+    expand_limits(y = 0) + # Force y-axis to start at zero
+    theme_bw(base_size = 12) +
+    facet_grid(rows = vars(unit_code), cols = vars(cov), labeller = label_both, scales = ifelse(free_y, "free_y", "fixed"))
+
+  ht_calc <- 150+(170*length(unique(p$data$unit_code)))
+  width_calc <- 300+(190*length(unique(p$data$cov)))
+  plotly_dist <- ggplotly(p1, tooltip = c("text"), height = ht_calc, width = width_calc) %>%
+    add_annotations( # y-axis title
+      text = y_lab,
+      x = -0.07,
+      y = 0.5,
+      yref = "paper",
+      xref = "paper",
+      xanchor = "right",
+      yanchor = "middle",
+      textangle = -90,
+      showarrow = FALSE,
+      font = list(size = 16)
+    ) %>%
+    add_annotations( # x-axis title
+      text = x_lab,
+      x = 0.5,
+      y = -40/ht_calc,
+      yref = "paper",
+      xref = "paper",
+      xanchor = "middle",
+      yanchor = "top",
+      showarrow = FALSE,
+      font = list(size = 16)
+    ) %>%
+  layout(
+    title = p_title,
+    margin = list(l = 90, r = 75,
+          b = 75, t = 75)
+  )
+  return(plotly_dist)
+  }
+
+FuncDetectSummary <- function(dat, incr_threshold) {
+
+  check_detect_decline <- dat %>%
+    dplyr::select(species_codename, unit_code, location_name, distance_bin_id, sum_indiv_per_1000m2) %>%
+    tidyr::pivot_wider(names_from = distance_bin_id, values_from = sum_indiv_per_1000m2, names_prefix = "bin_") %>%
+    dplyr::select(species_codename, unit_code, location_name, paste0("bin_", sort(unique(dat$distance_bin_id))))
+  
+  
+  if("bin_0" %in% names(check_detect_decline)) { # if there is a bin 0
+    check_detect_decline %<>%
+      dplyr::mutate(bin_0to1 = ifelse(bin_0 + incr_threshold >= bin_1, "decline_equal", "increase"))
+  }
+  
+    check_detect_decline %<>%
+      dplyr::mutate(
+        bin_1to2 = ifelse(bin_1 + incr_threshold >= bin_2, "decline_equal", "increase")
+      )
+  
+  if("bin_3" %in% names(check_detect_decline)) {
+    check_detect_decline %<>%
+      dplyr::mutate(bin_2to3 = ifelse(bin_2 + incr_threshold >= bin_3, "decline_equal", "increase"))
+  }
+  
+  check_detect_decline$dist_detect_function <- "declining"
+
+    if("bin_0" %in% names(check_detect_decline)) { # if there is a bin 0
+      check_detect_decline %<>%
+        dplyr::mutate(dist_detect_function = ifelse(bin_0to1 == "increase", "varying", dist_detect_function)
+                      )
+    }
+  
+    check_detect_decline %<>%
+    dplyr::mutate(dist_detect_function = ifelse(bin_1to2 == "increase", "varying", dist_detect_function))
+    
+  
+      if("bin_3" %in% names(check_detect_decline)) { # if there is a bin 3
+      check_detect_decline %<>%
+        dplyr::mutate(dist_detect_function = ifelse(bin_2to3 == "increase", "varying", dist_detect_function)
+                      )
+      }
+  
+  return(check_detect_decline)
+}
+
+FuncDistComboPlotly <- function(dat = NULL, cov_colname = NULL, max_dist = NULL) {
+  
+  cov_label <- switch(cov_colname,
+                      "location_name" = "Location",
+                      "no_split" = "No Grouping",
+                      "hab_type_200" = "Habitat",
+                      "weather_wind" = "Wind", 
+                      "weather_noise" = "Noise",
+                      "yr_visit" = "Survey Event",
+                      "dist_time_split" = "Time Interval"
+    )
+  
+  min_bin1 <- ifelse("0" %in% unique(dat$distance_bin_id), 25, 0) # if there is a bin 0, then bin 1 starts at 25m., otherwise starts at 0m.
+ 
+  # Distance data
+  temp_dist_plot_dat <- dat %>%
+    dplyr::mutate(no_split = "All Data") %>%
+    dplyr::rename(
+      dist_time_split = time_bin_split) %>%
+  dplyr::rename(cov = all_of(cov_colname)) %>%
+    dplyr::filter(!is.na(cov)) %>%
+    dplyr::group_by(unit_code, species_codename, distance_bin_id, distance_bin, cov) %>%
+    dplyr::summarize(sum_indiv = sum(count)) 
+  
+  dist_template <- merge(unique(temp_dist_plot_dat[c("unit_code", "species_codename", "cov")]), unique(temp_dist_plot_dat[c("distance_bin_id", "distance_bin")]))
+  
+  dist_plot_dat <- temp_dist_plot_dat %>%
+    dplyr::full_join(dist_template) %>%
+    dplyr::mutate(
+      sum_indiv = ifelse(is.na(sum_indiv), 0, sum_indiv),
+      dist_bin_1000m2 =
+        case_when( 
+          distance_bin_id == "0" ~ (pi*25^2)/1000,
+          distance_bin_id == "1" ~ (pi*50^2)/1000 - (pi*min_bin1^2)/1000,
+          distance_bin_id == "2" ~ (pi*100^2)/1000 - (pi*50^2)/1000,
+          distance_bin_id == "3" ~ (pi*max_dist^2)/1000 - (pi*100^2)/1000),
+      distance_midpt =
+        case_when(
+          distance_bin_id == "0" ~ round(mean(c(0, 25)), 1),
+          distance_bin_id == "1" ~ round(mean(c(min_bin1, 50)), 1),
+          distance_bin_id == "2" ~ round(mean(c(50, 100)), 1),
+          distance_bin_id == "3" ~ round(mean(c(100, max_dist)), 1)),
+      sum_indiv_per_1000m2 = round(sum_indiv/dist_bin_1000m2, 2)) %>%
+    dplyr::arrange(distance_bin_id) %>%
+    dplyr::group_by(unit_code, cov) %>%
+    dplyr::mutate(cum_detect = cumsum(sum_indiv)) %>%
+    dplyr::ungroup() %>%
+    dplyr::mutate(
+      hover_text = paste("</br>", species_codename, "</br>", unit_code, "</br>", cov_label, ": ", cov, "</br>Distance Bin ", distance_bin_id, " (", distance_bin, ")</br>Midpoint of distance bin interval: ", round(distance_midpt, 1), "</br>Total Detections: ", sum_indiv, "</br>Cumulative Detections: ", cum_detect, "</br> Detections per 1000m2: ", sum_indiv_per_1000m2))
+  
+  attr(dist_plot_dat, "cov_label") <- cov_label
+  
+  return(dist_plot_dat)
+}
+
+FuncTimeComboPlotly <- function(
+  dat = NULL,
+  cov_colname = NULL) {
+  
+  cov_label <- switch(cov_colname,
+                      "location_name" = "Location",
+                        "no_split" = "No Grouping",
+                        "hab_type_200" = "Habitat",
+                        "weather_wind" = "Wind", 
+                        "weather_noise" = "Noise",
+                        "dist_time_split" = "Distance Bin"
+  )
+  
+  # Time-to-removal data
+  temp_time_plot_dat <- dat %>%
+    dplyr::mutate(no_split = "All Data") %>%
+    dplyr::rename(
+      dist_time_split = distance_bin_id) %>%
+    dplyr::rename(
+      cov = all_of(cov_colname)) %>%
+    dplyr::filter(!is.na(cov)) %>%
+    dplyr::group_by(unit_code, time_bin_id, time_bin, cov) %>%
+    dplyr::summarize(sum_indiv = sum(count))
+  
+    time_template <- merge(unique(temp_time_plot_dat[c("unit_code", "cov")]), unique(temp_time_plot_dat[c("time_bin_id", "time_bin")]))
+  
+  time_plot_dat <- temp_time_plot_dat %>%
+    dplyr::full_join(time_template) %>%
+    dplyr::mutate(
+      sum_indiv = ifelse(is.na(sum_indiv), 0, sum_indiv)) %>%
+    dplyr::arrange(time_bin_id) %>%
+    dplyr::group_by(unit_code, cov) %>%
+    dplyr::mutate(cum_detect = cumsum(sum_indiv)) %>%
+    dplyr::ungroup() %>%
+    dplyr::mutate(
+      hover_text = paste("</br>", unit_code, "</br>", cov_label, ": ", cov, "</br>Time Bin ", time_bin_id, " (", time_bin, ")</br>Total Detections: ", sum_indiv, "</br>Cumulative Detections: ", cum_detect))
+  
+  attr(time_plot_dat, "cov_label") <- cov_label
+  
+  return(time_plot_dat)
+  
+}
+
+# Reactable bar chart function 
+bar_chart <- function(label, width = "100%", height = "14px", fill = "#00bfc4", background = NULL) {
+  bar <- div(style = list(background = fill, width = width, height = height))
+  chart <- div(style = list(flexGrow = 1, marginLeft = "6px", background = background), bar)
+  div(style = list(display = "flex", alignItems = "center"), label, chart)
+  }
+
+# Color scale for conditional formatting
+col_func <- function(x){
+  ifelse(!is.na(x),
+         rgb(colorRamp(c("#ffffff", "#f2fbd2", "#c9ecb4", "#93d3ab", "#35b0ab"))(x), maxColorValue = 255),
+         "#e9e9e9") #grey
+  }
+
+style_avg_detect <- function(value) {
+          color <- col_func(value/max(dat_list$df_species[grep("avg_", names(dat_list$df_species))], na.rm = T)) # normalize the values to color scale
+          list(background = color)
+}
+```
+
+```{r reactives}
+# One-park summary
+reactive({
+  shiny::req(!is.null(dat_list$df_full_obs_cov), !is.null(dat_list$df_detail_species), !is.null(input$sel_one_park), !is.null(input$sel_yr_end))
+
+  yr_vec <- input$sel_yr_end + -2:0 # the three years ending on user-selected year 
+
+  rv$one_park_dat <- dat_list$df_full_obs_cov %>%
+    dplyr::filter(unit_code %in% input$sel_one_park & yr %in% yr_vec) %>%
+    dplyr::group_by(unit_code, common_name, scientific_name, species_code, landbird, yr) %>%
+    dplyr::summarize(
+      "Detections/Survey" = round(mean(sum_indiv, na.rm = TRUE), 2),
+      "% Locations Detected" = round(100*length(unique(location_name[sum_indiv>0]))/length(unique(location_name))), # this is the % of survey locations at which the species was detected at least once (in any survey event),
+      "Total Detections" = sum(sum_indiv) # may be from multiple visits to same spot, so double-counting individuals
+      ) %>%
+    dplyr::ungroup() %>%
+    tidyr::pivot_wider(names_from = "yr", values_from = c("Detections/Survey", "% Locations Detected", "Total Detections")) %>%
+    dplyr::full_join(dat_list$df_detail_species %>% dplyr::filter(unit_code %in% input$sel_one_park) %>% dplyr::select(unit_code, species_code, park_breeding, tot_detect, recent_surv_round_avg), by = c("unit_code", "species_code")) %>%
+    dplyr::select("Park Unit" = unit_code, "Common Name" = common_name, "Scientific Name" = scientific_name, "Species Code" = species_code, "Landbird?" = landbird, "Breeding in Park?" = park_breeding, "ALL-TIME Detections" = tot_detect, "Recent Detections/Survey Round" = recent_surv_round_avg, colnames(.)[grepl("Total Detections_",colnames(.))], colnames(.)[grepl("Detections/Survey_",colnames(.))], colnames(.)[grepl("% Locations Detected_",colnames(.))]) %>%
+    dplyr::arrange(desc(`Recent Detections/Survey Round`)) # need to use backtick for it to recognize the column name
+  Sys.sleep(0.25)
+})
+
+# One-species summary
+
+observeEvent(eventExpr = input$button_UpdateSpeciesPlots, {
+
+  shiny::req(!is.null(dat_list$df_finaldat), !is.null(dat_list$df_locs), !is.null(dat_list$df_survey_conditions), !is.null(dat_list$df_full_obs_cov), !is.null(input$sel_species_parks), !is.null(input$sel_species))
+  
+  rv$species_map <- NULL
+  temp_sel_species <- input$sel_species
+  rv$sel_species_parks <- input$sel_species_parks
+  
+  rv$one_species_dat <- dat_list$df_full_obs_cov %>%
+    dplyr::filter(unit_code %in% rv$sel_species_parks & species_codename ==  temp_sel_species) # this includes zero counts. This is used in all plots and shown in a data table.
+  Sys.sleep(0.25)
+
+})
+ 
+# Distance and time function data
+observeEvent(eventExpr = input$button_UpdateDistPlots, {
+      saveRDS(isolate(reactiveValuesToList(input)), "temp_input.RDS")
+saveRDS(dat_list, "temp_dat_list.RDS")
+  saveRDS(isolate(reactiveValuesToList(rv)), "temp_rv.RDS")
+  
+  shiny::req(!is.null(dat_list$df_finaldat), !is.null(dat_list$df_locs), !is.null(dat_list$df_survey_conditions), !is.null(dat_list$events), !is.null(input$sel_dist_species), !is.null(input$sel_dist_parks), !is.null(input$sel_dist_cov), !is.null(input$sel_max_detect_dist), !is.null(rv$detect_by_loc), !is.null(input$sel_combine_bins))
+  
+  rv$linked_dist_map <- rv$linked_dist_plot <- rv$linked_dist_obs_dat <- rv$sel_dist_parks <- NULL
+  
+  temp_sel_dist_species <- input$sel_dist_species
+  rv$sel_dist_parks <- input$sel_dist_parks
+  temp_sel_dist_cov <- input$sel_dist_cov
+  temp_sel_combine_bins <- input$sel_combine_bins
+  temp_sel_max_detect_dist <- input$sel_max_detect_dist
+  
+  # This is raw data for the distance function table
+  temp_species_dist_dat <- dat_list$df_finaldat %>%
+    dplyr::filter(unit_code %in% rv$sel_dist_parks & species_codename ==  temp_sel_dist_species) %>%
+    dplyr::select(species_codename, unit_code, location_name, protocol, yr, event_date, data_status, count, time_bin_id, time_bin, time_bin_split, distance_bin_id, distance_bin, observer, event_comments, point_notes) 
+  
+  if(temp_sel_combine_bins) {
+    temp_species_dist_dat$distance_bin_id[temp_species_dist_dat$distance_bin_id  =="0"] <- "1"
+    temp_species_dist_dat$distance_bin[temp_species_dist_dat$distance_bin_id == "1"] <- "0-50 m"
+  }
+  
+  if(temp_sel_max_detect_dist == 100) {
+    temp_species_dist_dat %<>% dplyr::filter(distance_bin_id != "3") # If max distance set at 100, then drop records in the 100m+ bin
+  }
+  
+  rv$species_dist_dat <- temp_species_dist_dat %>%
+    dplyr::left_join(dat_list$df_locs[c("location_name", "dom_veg_200", "dom_veg_prop_200", "hab_type_200")], by = "location_name") %>%
+    dplyr::left_join(dat_list$df_survey_conditions[c("location_name", "event_date", "weather_wind", "weather_noise")], by = c("location_name", "event_date")) %>%
+    dplyr::left_join(dat_list$events, by = c("unit_code", "location_name", "event_date"))
+  
+
+
+
+  
+  # This is data for the distance covariate plots
+    rv$dist_plot_dat <- FuncDistComboPlotly(dat = rv$species_dist_dat, cov_colname = temp_sel_dist_cov, max_dist = temp_sel_max_detect_dist)
+    
+    attr(rv$dist_plot_dat, "page_title") <- paste0("<br><center><text style='color:blue; font-size:22px; font-weight:bold;'>Distance detection patterns for ", temp_sel_dist_species, ", grouped by park unit and ", tolower(attr(rv$dist_plot_dat, "cov_label")), "</text><br><text style='color:blue; font-size:18px;'>Detections are shown as # of detections (top), cumulative detections (middle), and observed density (bottom)</text></center><br>")
+  
+    # This is data for the time-to-removal covariate plots
+    rv$time_plot_dat <- FuncTimeComboPlotly(dat = rv$species_dist_dat, cov_colname = temp_sel_dist_cov)
+    
+      attr(rv$time_plot_dat, "page_title") <- paste0("<br><center><text style='color:blue; font-size:22px; font-weight:bold;'>Time-to-detection for ", temp_sel_dist_species, ", grouped by park unit and ", tolower(attr(rv$time_plot_dat, "cov_label")), "</text><br><text style='color:blue; font-size:18px;'>Detections are shown as # of detections (top) and cumulative detections (bottom)</text></center><br>")
+})
+
+# Distance function summary
+observeEvent(eventExpr = input$button_UpdateDetectFunctionPlots, {
+  shiny::req(!is.null(dat_list$df_finaldat), !is.null(rv$df_common), !is.null(input$sel_dist_summary_group), !is.null(input$sel_dist_combine_bins), !is.null(input$sel_analyses_max_detect_dist), !is.null(input$sel_analyses_max_increase_buffer))
+
+  out <- inner_join(dat_list$df_finaldat, rv$df_common)
+
+  if(input$sel_dist_combine_bins) {
+    out$distance_bin_id[out$distance_bin_id  =="0"] <- "1"
+    out$distance_bin[out$distance_bin_id == "1"] <- "0-50 m"
+  }
+  
+    if(input$sel_analyses_max_detect_dist == 100) {
+    out %<>% dplyr::filter(distance_bin_id != "3") # If max distance set at 100, then drop records in the 100m+ bin
+  }
+
+  out2 <- FuncDistComboPlotly(dat = out, cov_colname = "location_name", max_dist = input$sel_analyses_max_detect_dist) %>%
+    dplyr::rename("location_name" = "cov")
+
+  tot_detect_df <- out2 %>%
+    dplyr::group_by(unit_code, location_name, species_codename) %>%
+    dplyr::summarize(tot_detect = sum(sum_indiv))
+
+  buffer_hab_list <- lapply(maps_list[grepl("_100m", names(maps_list))], FUN = function(x) {
+    y<-x %>%
+      as.data.frame() %>%
+      dplyr::select(unit_code, location_name, buffer_m, veg_string) %>%
+      tidyr::pivot_wider(names_from = buffer_m, values_from = veg_string, names_prefix = "buffer_") %>%
+      dplyr::select(unit_code, location_name, buffer_50, buffer_100, buffer_200)
+  })
+  buffer_hab_df <- do.call(rbind.data.frame, buffer_hab_list)
+
+   rv$dist_detect_summary <- FuncDetectSummary(out2, incr_threshold = input$sel_analyses_max_increase_buffer) %>%
+    dplyr::left_join(buffer_hab_df, by = c("unit_code", "location_name")) %>%
+    dplyr::left_join(tot_detect_df, by = c("unit_code", "location_name", "species_codename")) %>%
+    dplyr::select(unit_code, location_name, species_codename, tot_detect, dist_detect_function, everything())
+
+  rm(out); rm(out2); rm(buffer_hab_list); rm(buffer_hab_df); rm(tot_detect_df)
+  })
+```
+
+Sampling Summary
+=========================================
+
+Column {data-width=50}
+-------------------------------------
+### Distribution of point location habitat type across park units
+```{r}
+output$table_physiog <- DT::renderDT({
+  shiny::req(!is.null(dat_list$df_full_obs_cov))
+  tab_dat <- dat_list$df_full_obs_cov 
+  tab_dat$dom_veg_200[tab_dat$dom_veg_200 == "Woodland and Forest"] <- "Woodlands and Forest"
+  tab_dat %<>%
+    dplyr::group_by(unit_code, hab_type_200, dom_veg_200) %>%
+    dplyr::summarize(num_locs = n_distinct(location_name)) %>%
+    tidyr::pivot_wider(names_from = "unit_code", values_from = "num_locs") %>%
+    dplyr::rename(habitat = hab_type_200) %>%
+    dplyr::arrange(habitat, dom_veg_200)
+
+  DT::datatable(
+    tab_dat,
+    class="compact row-border",
+    rownames= FALSE,
+    options = list(searching = FALSE, pageLength = -1, lengthChange = FALSE, paging = FALSE)) %>% 
+      formatStyle("habitat",
+                  target = "row", 
+                  backgroundColor = styleEqual(c("forest", "open", "shrub", "developed", "mixed"), c("lightgreen", "lightblue", "lightyellow", "lightbrown", "lightgray"))
+                  )
+  })
+
+DT::DTOutput("table_physiog")
+tags$style("#table_physiog{height:100vh;overflow-x:scroll;overflow-y:scroll}")
+
+```
+
+Column {data-width=55}
+-------------------------------------
+### Weekly timing of surveys
+```{r}
+output$out_WeeksPlot <- renderPlotly({
+  shiny::req(!is.null(dat_list$df_survey_conditions))
+  survey_wk_heatdat <- dat_list$df_survey_conditions %>% 
+  dplyr::mutate(
+    yr = lubridate::year(event_date)) %>%
+  dplyr::select(unit_code, yr, wk) %>%
+  dplyr::distinct() %>%
+  dplyr::mutate(has_survey = 1) %>%
+  dplyr::full_join(., tidyr::expand_grid(unit_code = sort(unique(.$unit_code)), yr = min(.$yr):max(.$yr), wk = min(.$wk):max(.$wk))) %>% # explicitly fills 0's so I can assign an NA color in plot. Every unit code gets every combination of year and week.
+  dplyr::mutate_at(vars("has_survey"), ~replace_na(.,0)) %>%
+  dplyr::mutate(hover_text = paste0("<span style='font-size:12px; font-weight:bold;'>", unit_code, "</span><br>Year: ", yr, "<br>Week: ", wk, "<br>Surveyed? ", ifelse(has_survey == 1, "YES", "NO")))
+
+# total height
+num_facet_rows <- ceiling(length(unique(survey_wk_heatdat$unit_code))/2) 
+total_page_ht <- 150 + 12 * length(min(survey_wk_heatdat$wk):max(survey_wk_heatdat$wk)) * num_facet_rows + 10 * num_facet_rows
+
+# subplot function
+subplot_wk <- . %>% plot_ly(
+    x = ~wk,
+    y = ~yr,
+    z = ~has_survey,
+    xgap = 1, # adds the white lines btwn heatmap cells
+    ygap = 1,
+    height = total_page_ht,
+    colorscale = data.frame(z = c(0, 1), col = c("lightgray", "black")),
+    type = "heatmap",
+    text = ~hover_text,
+    hoverinfo ="text"
+    ) %>%
+  layout(
+    yaxis = list(
+      title = "Year",
+      tickprefix = "  " # hack for increasing space between y-axis title and tick labels
+    ),
+    xaxis = list(
+      title = "Week of Year"
+      )) %>%
+  add_annotations(
+    text = ~unique(unit_code),
+    x = 0.5,
+    y = 1.02,
+    yref = "paper",
+    xref = "paper",
+    xanchor = "middle",
+    yanchor = "bottom",
+    showarrow = FALSE,
+    font = list(size = 15)
+    )
+
+# subplot view
+survey_wk_heatdat %>%
+  dplyr::group_by(unit_code) %>%
+  plotly::do(p = subplot_wk(.)) %>%
+  subplot(
+      nrows = ceiling(NROW(.)/2), 
+      shareX = TRUE, 
+      shareY = TRUE,
+      margin = c(0.01, 0.01, 0.025, 0.02), # this is the subplot margin, L R T B
+      which_layout = 1) %>%
+  layout(
+    title = "Survey weeks (in black) each year. Week 15 is mid-May; 30 is July/Aug.",
+    margin = list(l = 75, r = 20,
+          b = 120, t = 75) # adds space to top and bottom of page
+) %>%
+  hide_colorbar(.)
+})
+
+tags$style("#out_WeeksPlot{height:100vh;overflow-x:scroll;overflow-y:scroll}")
+plotly::plotlyOutput('out_WeeksPlot', height="100%", width = "95%")
+```
+
+Species Summary
+=========================================
+
+<font size="3">**Summary of bird detections during GULN point count surveys**</font>
+
+* <font size="2"> This table summarizes detections for all bird species and all park units in GULN bird point count surveys. Cell values are color-coded so more detections = darker green.</font>
+
+* <font size="2"> Records are sorted descending by `AVG OF 6 PARKS'. Sort columns by clicking on the column name. Use the search box under each column name to filter data.  </font>
+
+* <font size="2"> 'Commonly detected' species-park combinations have an average of 20 or more detections per survey round since 2019 (GUIS-FL and GUIS-MS counts are combined for this). </font>
+
+* <font size="2"> Hover over (underlined) column names to see column definitions. Click on a row triangle (first col) to show summary by park unit, for that species. </font>
+
+```{r species_reactable}
+reactable::reactable(dat_list$df_species,
+                     defaultColDef = colDef(
+                                     align = "center"
+                                     ),
+                     columns = list(
+                       species_code = colDef(name = "Species Code"),
+                       scientific_name = colDef(name = "Scientific Name"),
+                       common_name = colDef(name = "Common Name"),
+                       landbird = colDef(
+                         name = "Landbird?"),
+                       AVG_PARKS = colDef(header = with_tooltip("AVG OF 6 PARKS", "Average of park-specific averages, with equal weighting across parks (i.e., regardless of park size or number of point survey locations)"), style = style_avg_detect),
+                       avg_BITH = colDef(header = with_tooltip("BITH (N=32)", "Average # of individuals detected per point-survey at BITH"), style = style_avg_detect),
+                       `avg_GUIS-FL` = colDef(header = with_tooltip("GUIS-FL (N=13)", "Average # of individuals detected per point-survey at GUIS-FL"), style = style_avg_detect),
+                       `avg_GUIS-MS` = colDef(header = with_tooltip("GUIS-MS (N=8)", "Average # of individuals detected per point-survey at GUIS-MS"), style = style_avg_detect),
+                       avg_JELA = colDef(header = with_tooltip("JELA (N=32)", "Average # of individuals detected per point-survey at JELA"), style = style_avg_detect),
+                       avg_PAAL = colDef(header = with_tooltip("PAAL (N=29)", "Average # of individuals detected per point-survey at PAAL"), style = style_avg_detect),
+                       avg_SAAN = colDef(header = with_tooltip("SAAN (N=33)", "Average # of individuals detected per point-survey at SAAN"), style = style_avg_detect),
+                       avg_VICK = colDef(header = with_tooltip("VICK (N=32)", "Average # of individuals detected per point-survey at VICK"), style = style_avg_detect)
+                     ),
+                     columnGroups = list(
+                       colGroup(name = "Average Detections per Survey (# of point locations)", columns = c("AVG_PARKS", "avg_BITH", "avg_GUIS-FL", "avg_GUIS-MS", "avg_JELA", "avg_PAAL", "avg_SAAN", "avg_VICK"))
+                       ),
+                     compact = TRUE,
+                     bordered = TRUE,
+                     resizable = TRUE,
+                     striped = TRUE,
+                     highlight = TRUE,
+                     filterable = TRUE,
+                     defaultSortOrder = "desc",
+                     defaultSorted = "AVG_PARKS",
+                     showPageSizeOptions = TRUE,
+                     pageSizeOptions = c(10, 25, 50, 100),
+                     defaultPageSize = 25,
+                     fullWidth = TRUE,
+                     width = "auto",
+                     details = function(index) {
+                       detail_species <-
+                         dat_list$df_detail_species[dat_list$df_detail_species$species_code == dat_list$df_species$species_code[index], ]
+                       htmltools::div(
+                         style = "padding: 20px",
+                         reactable(detail_species,
+                                   defaultColDef = colDef(
+                                     align = "center"
+                                     ),
+                                   columns = list(
+                                     unit_code = colDef(name = "Park Code"),
+                                     species_code = colDef(show = FALSE),
+                                     park_breeding = colDef(name = "Breeding in Park?"),
+                                     num_yrs = colDef(name = "# of Survey Yrs"),
+                                     perc_loc_detect = colDef(
+                                       header = with_tooltip("%Locations Detected", "% of point survey locations at which species detected at least once"),
+                                       width = 150,
+                                       cell = function(value) {
+                                         width <- paste0(value, "%")
+                                         bar_chart(value, width = width, fill = "#fc5185", background = "#e1e1e1")
+                                         }),
+                                     perc_surv_detect = colDef(
+                                       header = with_tooltip("%Surveys Detected", "% of point-surveys in which species detected"),
+                                       width = 150,
+                                       cell = function(value) {
+                                         width <- paste0(value, "%")
+                                         bar_chart(value, width = width, fill = "#fc5185", background = "#e1e1e1")
+                                         }),
+                                     tot_detect = colDef(header = with_tooltip("Total Detections", "total detections over all surveys (some birds may be counted multiple times, across different surveys)"), maxWidth = 120),
+                                     recent_surv_round_avg = colDef(header = with_tooltip("Recent Detections/ Survey Round", "Since 2019, the average number of detections per survey ROUND (each location surveyed exactly once; since 2019, parks have two survey rounds per year). `Commonly detected` species-park combinations have detections averaging >=20/survey round since 2019 and are highlighted yellow (GUIS-FL & GUIS-MS counts are combined for this count)."), style = function(value) {
+                                         color <- switch((value >= 20)+1, NULL, "yellow")
+                                         list(background = color)
+                                         },
+                                         maxWidth = 120),
+                                     avg_surv_detect = colDef(header = with_tooltip("Detections/Survey", "Average # of individuals detected per point-survey"), maxWidth = 120, style = style_avg_detect),
+                                       spark_avg_yr = colDef(
+                                         header = with_tooltip("Detections Timeline", "Each point shows the average # of individuals detected per point-survey, by year"), cell = function(values) {
+    sparkline(values, type = "line")}),
+                                     n_surv = colDef(header = with_tooltip("# of Surveys", "# of point-surveys conducted"), maxWidth = 100),
+                                     n_locs = colDef(show = FALSE)
+                                     ),
+                                   outlined = TRUE,
+                                   compact = TRUE,
+                                   resizable = TRUE,
+                                   defaultSortOrder = "desc",
+                                   defaultSorted = "avg_surv_detect")
+                       )
+                       }
+                     )
+
+```
+
+Drill-Down by Park
+=========================================
+
+Inputs {.sidebar data-width=225}
+-------------------------------------
+```{r}
+renderUI({
+  shiny::req(!is.null(dat_list$df_full_obs_cov))
+
+  selectInput(
+    "sel_one_park",
+    label = strong("Select a Park: "),
+    choices = sort(unique(dat_list$df_full_obs_cov$unit_code)),
+    selected = switch(is.null(input$sel_one_park)+1, input$sel_one_park, "BITH")
+    )
+  })
+
+renderUI({
+  shiny::req(!is.null(dat_list$df_full_obs_cov))
+  numericInput(
+    "sel_yr_end",
+    label = strong("3-yr summary ending (year): "),
+    value = max(dat_list$df_full_obs_cov$yr, na.rm = TRUE), # don't need switch() for this function--the user selection is kept until changed
+    min = min(dat_list$df_full_obs_cov$yr, na.rm = TRUE) + 2, max = max(dat_list$df_full_obs_cov$yr, na.rm = TRUE), step = 1
+                   
+    )
+  })
+```
+
+
+Tabs {.tabset .tabset-fade}
+-------------------------------------
+
+### 3-Yr Summary
+
+<font size="3">**Park summary for selected 3-yr period**</font>
+
+* <font size="2"> For the selected park unit and 3-yr period, this table summarizes detections for all bird species by year.</font>
+
+* <font size="2"> Records are sorted descending by `Recent Detections/Survey Round'. Sort columns by clicking on the column name. Use the search box under each column name to filter data. </font>
+
+* <font size="2"> 'Recent Detections/Survey Round' is the average number of detections per survey round since 2019. A survey round consists of one visit to every survey location in the park. 'Commonly detected' species for the park unit are highlighted yellow, and are defined as species averaging at least 20 detections/survey round since 2019 (GUIS-FL and GUIS-MS counts are combined for this count). </font>
+
+```{r}
+output$table_one_park <- DT::renderDT({
+  shiny::req(!is.null(input$sel_one_park), !is.null(input$sel_yr_end), !is.null(rv$one_park_dat))
+  cat("LINE1091")
+  DT::datatable(
+    rv$one_park_dat,
+    class="compact stripe",
+    rownames= FALSE,
+    extensions = c('Buttons','ColReorder'),
+    filter = 'top',
+    options = list(
+      scrollX = TRUE,
+      autoWidth = TRUE,
+      dom = 'Blrtip',
+      buttons = c('copy', 'csv', 'excel'),
+      lengthMenu = list(c(10,25,50,-1),
+                        c(10,25,50,"All")),
+      pageLength = 25,
+      scrollCollapse = FALSE,
+      columnDefs = list(list(className = "dt-center", targets = "_all"))
+  )) %>%
+    formatStyle(columns = "Recent Detections/Survey Round", target = "cell", backgroundColor = styleInterval(c(20), c(NA, "yellow"))) %>%
+    formatStyle(c(8, 11, 14), `border-right` = "solid 2px")
+})
+DTOutput("table_one_park")
+tags$style("#table_one_park{height:100vh;overflow-x:scroll;overflow-y:scroll;}")
+```
+
+### Survey Locations Map
+
+<span style="font-size:18px; color:red;">
+  HABITAT MAPS ARE SLOW TO DRAW - PLEASE BE PATIENT 
+</span>
+
+```{r}
+renderLeaflet({  
+  shiny::req(!is.null(input$sel_one_park), !is.null(maps_list))
+  maps_list[[input$sel_one_park]] %>%
+  addProviderTiles("Esri.WorldImagery", options = providerTileOptions(noWrap = TRUE), group="Satellite") %>%
+    addProviderTiles("OpenStreetMap", group = "OpenStreetMap") %>%
+  addLayersControl(
+    baseGroups = c("OpenStreetMap", "Satellite"),
+    overlayGroups = c("park veg", "100-m radius", "200-m radius"),
+    position = "topright", options = layersControlOptions(collapsed = TRUE)
+  )
+  })
+```
+
+Drill-Down by Species
+=========================================
+
+Inputs {.sidebar data-width=250}
+-------------------------------------
+```{r} 
+checkboxInput("sel_common",
+                        label = strong("Limit to 'commonly detected' species-park combinations (since 2019, avg # of detections/survey round >= 20)"),
+                        value = TRUE)
+  
+renderUI({
+  shiny::req(!is.null(dat_list$df_full_obs_cov), !is.null(rv$df_common), !is.null(input$sel_common))
+  
+  selectInput(
+    "sel_species",
+    label = strong("Select a Species: "),
+    choices = FuncSpeciesChoices(input$sel_common),
+    selected = switch(is.null(input$sel_species)+1, input$sel_species, FuncSpeciesChoices(input$sel_common)[1])
+    )
+  })
+
+renderUI({
+  shiny::req(!is.null(dat_list$df_full_obs_cov), !is.null(rv$df_common), !is.null(input$sel_common), !is.null(input$sel_species))
+
+  checkboxGroupInput("sel_species_parks",
+                     label = strong("Select Park(s): "),
+                     choices = FuncParkChoices(input$sel_common, input$sel_species),
+                     selected = switch(is.null(input$sel_species_parks)+1, input$sel_species_parks, FuncParkChoices(input$sel_common, input$sel_species))
+                     )
+  })
+
+actionButton("button_UpdateSpeciesPlots", "Update Plots", width = "100%", style="border-color:black; background-color: lightgreen; border:0px; margin:0px")
+```
+
+Tabs {.tabset .tabset-fade}
+-------------------------------------
+
+### Heatmaps of Counts
+
+<font size="3">**Heatmaps: Detections per survey, grouped by PARK UNIT and SURVEY ROUND**</font>
+
+* <font size="2"> Each heat map cell is colored according to the number of detections in a point count, WITHOUT CORRECTING FOR DETECTION PROBABILITY. </font>
+
+* <font size="2"> Color scale ranges from yellow (few detections) to green (moderate) to purple (many detections). White cells = location not surveyed; gray cells = location surveyed but zero detections. </font>
+
+* <font size="2"> Each heat map column represents a SURVEY ROUND, i.e., a single pass of all points to be surveyed that year in that park unit. Since 2019, each park has two survey rounds per year of survey (e.g., 2019_1 and 2019_2). </font>
+
+```{r}
+output$out_HeatPlot <- renderPlotly({
+
+  shiny::req(!is.null(rv$one_species_dat))
+
+  FuncHeatCountPlotly(dat = rv$one_species_dat)
+})
+
+tags$style("#out_HeatPlot{height:100vh;overflow-y:scroll}")
+plotlyOutput('out_HeatPlot', height="100%", width = "90%")
+```
+
+### Boxplots of Counts
+
+<font size="3">**Boxplots: Detections per survey, grouped by PARK UNIT and YEAR**</font>
+
+* <font size="2"> Each blue point shows the number of detections in a point count, WITHOUT CORRECTING FOR DETECTION PROBABILITY. Points are JITTERED for easy viewing. </font>
+
+* <font size="2"> A location may be surveyed more than once (i.e., multiple blue points shown) per year. </font>
+
+* <font size="2"> The red line across years is a loess smooth. For each year, the boxplot solid horizontal line shows median count; dashed line, mean count. </font>
+
+####
+```{r}
+renderUI({
+  checkboxInput("sel_freeY",
+                        label = h6("Allow y-axis to differ across boxplots"),
+                        value = TRUE)
+  })
+```
+  
+####  
+```{r}
+output$out_BoxPlot <- renderPlotly({
+  shiny::req(!is.null(rv$one_species_dat), !is.null(input$sel_freeY))
+  
+  FuncYrBoxPlotly(dat = rv$one_species_dat, free_y = input$sel_freeY)
+})
+
+tags$style("#out_BoxPlot{height:100vh;overflow-x:scroll;overflow-y:scroll}")
+plotlyOutput('out_BoxPlot', height="100%", width = "100%")
+```
+
+### Categorical Covariates
+
+```{r}
+# Boxplots by park unit and a covariate
+output$out_ComboBoxPlot <- renderPlotly({
+  shiny::req(!is.null(rv$one_species_dat))
+  
+  cov_vec <- c("hab_type_200", "weather_sky", "weather_wind", "weather_noise")
+  
+  cat("line951")
+  box_plotly_list <- lapply(cov_vec, FUN = function(x) {
+    cov_name = switch(
+        x,
+        "hab_type_200" = "Habitat", 
+        "weather_sky" = "Sky (cloudiness)", 
+        "weather_wind" = "Wind", 
+        "weather_noise" = "Ambient Noise"
+      )
+    FuncComboBoxPlotly(
+      dat = rv$one_species_dat %>%
+        dplyr::rename(cov = x) %>%
+        dplyr::filter(!is.na(cov)) %>%
+        dplyr::mutate(hover_text = paste("</br>", species_code, "</br>", unit_code, "</br>Location: ", location_name, "</br>Date: ", event_date, cov_name, ": ", cov, "</br> # of Detections: ", sum_indiv)),
+      subplot_title = cov_name)
+    
+  })
+  
+  subplot(
+    box_plotly_list,
+      nrows = 2, 
+      shareX = FALSE, 
+      shareY = FALSE,
+      margin = c(0.1, 0.1, 0.05, 0.05), # this is the subplot margin, L R T B
+      which_layout = 1) %>%
+  layout(
+    title = paste0("Counts/survey for ", unique(rv$one_species_dat$species_codename), ", by park and covariate level"),
+    margin = list(l = 30, r = 30, b = 80, t = 110) # adds space to top and bottom of page
+    )
+  })
+
+tags$style("#out_ComboBoxPlot{height:100vh;overflow-x:scroll;overflow-y:scroll}")
+plotlyOutput('out_ComboBoxPlot', height="100%", width = "100%")
+```
+
+### Numeric Covariates
+
+```{r}
+output$out_CovPointPlot <- renderPlotly({
+  shiny::req(!is.null(rv$one_species_dat))
+
+  FuncCovPointPlotly(dat = rv$one_species_dat)
+})
+
+tags$style("#out_CovPointPlot{height:100vh;overflow-x:scroll;overflow-y:scroll}")
+plotlyOutput('out_CovPointPlot', height="100%", width = "100%")
+```
+
+### Species Counts Map
+
+<font size="3">**Map of survey locations and average detections/surveys**</font>
+
+* <font size="2"> Each blue point is scaled to the detections/survey, averaged over all surveys conducted at that survey location. </font>
+
+* <font size="2"> The size of the transparent yellow circles show approximately a 100-m and 200-m radius extending from each survey location (reflecting the fact that the largest distance bin is >= 100m). </font>
+
+* <font size="2"> Use the baseline point size input box for better viewing of blue points (relative sizes will still be scaled to detections/survey)</font>
+
+```{r}
+
+br()
+
+splitLayout(
+  cellWidths = c("45%", "55%"),
+  renderUI({
+  shiny::req(!is.null(rv$sel_species_parks))
+  radioButtons("sel_species_map_park",
+               label = strong("Select a park unit (from initially selected subset of park units)"),
+               choices = rv$sel_species_parks,
+               inline = TRUE,
+               selected = rv$sel_species_parks[1])
+  }),
+  numericInput(
+    "sel_species_point_scale",
+    label = strong("Set baseline blue (detections) point size: "),
+    value = 0.7,
+    min = 0.1, max = 1.5, step = 0.1
+    )
+)
+
+actionButton("button_UpdateSpeciesMap", "Update Map", width = "350px", style="border-color:black; background-color: lightgreen; border:0px; margin:0px")
+
+observeEvent(eventExpr = input$button_UpdateSpeciesMap, {
+  shiny::req(!is.null(maps_list), !is.null(rv$detect_by_loc), !is.null(rv$one_species_dat), !is.null(input$sel_species_map_park), !is.null(input$sel_species_point_scale))
+  
+cat("line1213")
+    sel_species_point_scale <- input$sel_species_point_scale
+    sel_species_map_park <- input$sel_species_map_park
+    
+    hover_add <- maps_list[[paste0(sel_species_map_park, "_100m")]] %>% 
+      sf::st_drop_geometry() %>%
+      dplyr::filter(buffer_m == 100) %>%
+      dplyr::select(location_name, add_hover_text = hover_text) 
+  cat("line1219")  
+    sp_map_dat <- rv$detect_by_loc %>%
+      dplyr::filter(unit_code == sel_species_map_park & species_codename ==  unique(rv$one_species_dat$species_codename)) %>%
+      dplyr::left_join(hover_add, by = "location_name") %>%
+      dplyr::mutate(hover_text = paste(hover_text, "<br><br>", add_hover_text))
+cat("line1224")   
+    shiny::req(!is.null(sp_map_dat))
+  
+  rv$species_map <- 
+    maps_list[[sel_species_map_park]] %>%
+    addMapPane("point_size_counts", zIndex = 410) %>%
+    addProviderTiles("Esri.WorldImagery", options = providerTileOptions(noWrap = TRUE), group="Satellite") %>%
+    addProviderTiles("OpenStreetMap", group = "OpenStreetMap") %>%
+    leaflet::addCircleMarkers(data = sp_map_dat, lng = ~longitude, lat = ~latitude, fill = TRUE, fillOpacity = 0.6, fillColor = "blue", weight = 1, color = "black", radius = ~point_size*sel_species_point_scale, label = ~point_text, popup = ~hover_text, group = "Avg Detections/Survey", options = pathOptions(pane = "point_size_counts")) %>%
+    addControl(paste0(unique(sp_map_dat$species_codename), " at ", sel_species_map_park), position = "topleft", className="map-title") %>% 
+  addLayersControl(
+    baseGroups = c("OpenStreetMap", "Satellite"),
+    overlayGroups = c("park veg", "100-m radius", "200-m radius", "Avg Detections/Survey"),
+    position = "topright", options = layersControlOptions(collapsed = FALSE)
+  )
+  cat("line1239")
+})
+```
+
+<span style="font-size:18px; color:red;">
+    HABITAT MAPS ARE SLOW TO DRAW - PLEASE BE PATIENT 
+</span>
+
+```{r}
+renderLeaflet({
+  shiny::req(!is.null(rv$species_map))
+  rv$species_map
+  })
+```
+
+### Summary Data (Survey Counts)
+
+```{r}
+output$table_species_survey <- renderReactable({
+  shiny::req(!is.null(rv$one_species_dat))
+  reactable::reactable(rv$one_species_dat %>% dplyr::select(species_codename, unit_code, location_name, yr, yr_visit, wk, event_date, hrs_since_rise, julian_prop, sum_indiv, hab_type_200, dom_veg_200, dom_veg_prop_200, weather_sky, weather_wind, weather_temperature, weather_noise),
+                     defaultColDef = colDef(
+                       align = "center"
+                     ),
+                     compact = TRUE,
+                     bordered = TRUE,
+                     resizable = TRUE,
+                     striped = TRUE,
+                     highlight = TRUE,
+                     filterable = TRUE,
+                     showPageSizeOptions = TRUE,
+                     pageSizeOptions = c(10, 25, 50, 100),
+                     defaultPageSize = 25,
+                     fullWidth = TRUE,
+                     width = "auto")
+})
+reactableOutput("table_species_survey")
+tags$style("#table_species_survey{height:100vh;overflow-x:scroll;overflow-y:scroll}")
+
+```
+
+Detection Patterns by Species
+=========================================
+
+Inputs {.sidebar data-width=250}
+-------------------------------------
+```{r} 
+checkboxInput("sel_dist_common",
+                        label = strong("Limit to 'commonly detected' species-park combinations (since 2019, avg # of detections/survey round >= 20)"),
+                        value = TRUE)
+  
+renderUI({
+  shiny::req(!is.null(dat_list$df_full_obs_cov), !is.null(rv$df_common), !is.null(input$sel_dist_common))
+  cat("SELECT A SPECIES")
+  selectInput(
+    "sel_dist_species",
+    label = strong("Select a Species: "),
+    choices = FuncSpeciesChoices(input$sel_dist_common),
+    selected = switch(is.null(input$sel_dist_species)+1, input$sel_dist_species, FuncSpeciesChoices(input$sel_dist_common)[1])
+    )
+  })
+
+renderUI({
+  shiny::req(!is.null(dat_list$df_full_obs_cov), !is.null(rv$df_common), !is.null(input$sel_dist_common), !is.null(input$sel_dist_species))
+  cat("SELECT PARKS")
+  checkboxGroupInput("sel_dist_parks",
+               label = strong("Select Park(s): "),
+               choices = FuncParkChoices(input$sel_dist_common, input$sel_dist_species),
+               selected = switch(is.null(input$sel_dist_parks)+1, input$sel_dist_parks, FuncParkChoices(input$sel_dist_common, input$sel_dist_species))
+  )
+})
+
+radioButtons("sel_dist_cov",
+                       label = strong("Show distance & time plots by covariate level: "),
+                       choices = c("(none)" = "no_split",
+                                   "Habitat" = "hab_type_200",
+                                   "Wind" = "weather_wind",
+                                   "Ambient Noise" = "weather_noise",
+                                   "Survey Event" = "yr_visit",
+                                   "Distance/Time Interval" = "dist_time_split"),
+                       selected = "hab_type_200")
+
+  checkboxInput("sel_combine_bins",
+                        label = strong("Combine first and second distance bins (first bin becomes 0 - 50m)"),
+                        value = FALSE)
+  
+  sliderInput("sel_max_detect_dist",
+              label = strong("Select a maximum detection distance, in meters (outer boundary of largest distance bin)"),
+              min = 100,
+              max = 300,
+              step = 10,
+              value = 200)
+
+actionButton("button_UpdateDistPlots", "Update Plots", width = "100%", style="border-color:black; background-color: lightgreen; border:0px; margin:0px")
+```
+
+Tabs {.tabset .tabset-fade}
+-------------------------------------
+
+### Time-to-Detection by Cov
+
+<font size="3">**Time-to-detection plots**</font>
+
+* <font size="2"> These figures show initial detection (top = actual counts, bottom = cumulative sum) by time-since-start of point count. X-axis is one-minute survey intervals (e.g., minute 0-1, minute 1-2, etc.) </font>
+
+* <font size="2"> If maximum detection distance is set to 100m in the left-side column, detections from the 100m+ distance bin are excluded </font>
+
+####
+
+```{r}
+checkboxInput("sel_time_freeY",
+                        label = strong("Allow y-axis scale to differ across park units"),
+                        value = TRUE)
+
+renderPlotly({
+  shiny::req(!is.null(rv$time_plot_dat))
+cat("line1295")
+  p_raw <- ggplot(rv$time_plot_dat, aes(x = time_bin_id, y = sum_indiv, text = hover_text)) +
+    geom_col(fill = "white", color = "black")
+cat("line1298")
+  SubFuncAddPlotly(p = p_raw, cov = input$sel_dist_cov, x_lab = "Time Interval", y_lab = " # of Initial Detections", p_title = "Detections per time interval", free_y = input$sel_time_freeY)
+  })
+```
+
+####
+
+```{r}
+renderPlotly({
+  shiny::req(!is.null(rv$time_plot_dat))
+cat("line1322")
+ p_cum_detect <- ggplot(rv$time_plot_dat, aes(x = time_bin_id, y = cum_detect, text = hover_text)) +
+  geom_point(color = "orange", size = 2) +
+  geom_line(color = "orange", aes(group = unit_code))
+cat("line1326")
+ SubFuncAddPlotly(p = p_cum_detect, cov = input$sel_dist_cov, x_lab = "Time Interval", y_lab = "Cumulative Detections", p_title = "Cumulative detections vs. time", free_y = input$sel_time_freeY)
+})
+```
+
+### Detection Distance by Cov
+
+<font size="3">**Distance function plots**</font>
+
+* <font size="2"> These figures show detection by distance bin. Bins are: 0 = 0-25m, 1 = 25-50m, 2 = 50-100m, 3 = 100m+ </font>
+
+* <font size="2"> If first and second distance bins are combined (see option in left-side column), then Bin 1 = 0-50m. If maximum detection distance is set to 100m, detections from the 100m+ distance bin are excluded. </font>
+
+####
+
+```{r}
+checkboxInput("sel_dist_freeY",
+                        label = strong("Allow y-axis scale to differ across park units"),
+                        value = TRUE)
+
+
+renderUI({
+  shiny::req(!is.null(rv$dist_plot_dat))
+
+  div(HTML(attr(rv$dist_plot_dat, "page_title")))
+})
+
+renderPlotly({
+  shiny::req(!is.null(rv$dist_plot_dat))
+cat("line1295")
+  p_raw <- ggplot(rv$dist_plot_dat, aes(x = distance_bin_id, y = sum_indiv, text = hover_text)) +
+    geom_col(fill = "white", color = "black")
+cat("line1298")
+  SubFuncAddPlotly(p = p_raw, cov = input$sel_dist_cov, x_lab = "Distance Bin ID", y_lab = " # of Detections", p_title = "Detections per distance bin", free_y = input$sel_dist_freeY)
+  })
+```
+
+####
+
+```{r}
+renderPlotly({
+  shiny::req(!is.null(rv$dist_plot_dat))
+cat("line1308")
+  p_detect_dens <- ggplot(rv$dist_plot_dat, aes(x = distance_midpt, y = sum_indiv_per_1000m2, text = hover_text)) +
+  geom_point(color = "blue", size = 2) +
+  geom_line(color = "blue", aes(group = unit_code))
+cat("line1312")
+  SubFuncAddPlotly(p = p_detect_dens, cov = input$sel_dist_cov, x_lab = "Midpoint of Distance Bin Interval", y_lab = "Detections/1000m2", p_title = "Observed density vs. distance", free_y = input$sel_dist_freeY)
+  })
+```
+
+####
+
+```{r}
+renderPlotly({
+  shiny::req(!is.null(rv$dist_plot_dat))
+cat("line1322")
+ p_cum_detect <- ggplot(rv$dist_plot_dat, aes(x = distance_midpt, y = cum_detect, text = hover_text)) +
+  geom_point(color = "orange", size = 2) +
+  geom_line(color = "orange", aes(group = unit_code))
+cat("line1326")
+ SubFuncAddPlotly(p = p_cum_detect, cov = input$sel_dist_cov, x_lab = "Midpoint of Distance Bin Interval", y_lab = "Cumulative Detections", p_title = "Cumulative detections vs. distance", free_y = input$sel_dist_freeY)
+})
+```
+
+### Detection Distance by Map Location
+
+<font size="3">**Distance function plots, linked to map locations**</font>
+
+   * <font size="2"> The line graph shows observed density (# of detections/1000m2) for each distance bin (represented by the midpoint of the distance bin, in meters from observer). RED 'VARYING' LINES show locations where observed density DOES NOT DECLINE WITH DISTANCE from observer, violating a basic assumption of distance sampling models. Each line shows a different survey point, with detections summed over all surveys at that point. Points are slightly jittered in the x-axis direction, only to make it easier to click on a point that may (otherwise) overlap other points. </font>
+   
+   * <font size="2"> RED MAP CIRCLES correspond with red lines on line graph and show locations where observed density DOES NOT DECLINE WITH DISTANCE from observer. </font>
+   
+  * <font size="2"> CLICK ON A DATA POINT IN THE LINE GRAPH, to highlight (blue) the corresponding location on the map and to show the underlying data records. </font>
+
+```{r}
+
+br()
+
+splitLayout(
+  cellWidths = c("45%", "55%"),
+  verticalLayout(
+    renderUI({
+    shiny::req(!is.null(rv$sel_dist_parks))
+  radioButtons("sel_dist_map_park",
+               label = strong("Select a park unit (from initially selected subset of park units, see leftside panel)"),
+               choices = rv$sel_dist_parks,
+               inline = TRUE,
+               selected = rv$sel_dist_parks[1])
+  }),
+    sliderInput("sel_max_increase_buffer",
+              label = strong("Select a threshold density increase beyond which the detection distance function should be flagged"),
+              min = 0,
+              max = 0.5,
+              step = 0.05,
+              value = 0.05)
+  ),
+  
+  numericInput(
+    "sel_dist_point_scale",
+    label = strong("Set baseline blue (detections) point size: "),
+    value = 0.4,
+    min = 0.1, max = 1.5, step = 0.1
+    )
+)
+
+actionButton("button_UpdateDistMap", "Update Map", width = "350px", style="border-color:black; background-color: lightgreen; border:0px; margin:0px")
+
+observeEvent(eventExpr = input$button_UpdateDistMap, {
+  shiny::req(!is.null(rv$species_dist_dat), !is.null(input$sel_dist_map_park), !is.null(input$sel_dist_point_scale), !is.null(maps_list), !is.null(rv$detect_by_loc))
+  
+   rv$linked_dist_map <- rv$linked_dist_obs_dat <- rv$linked_dist_plot <- NULL
+ 
+  sel_dist_point_scale <- input$sel_dist_point_scale
+  sel_dist_map_park <- input$sel_dist_map_park
+  
+  rv$linked_dist_obs_dat <- subset(rv$species_dist_dat, unit_code == sel_dist_map_park) # these are the observation-level data limited to the one selected park 
+
+# Linked line plots
+  
+summary_dist_dat = FuncDistComboPlotly(dat = rv$linked_dist_obs_dat, cov_colname = "location_name", max_dist = 200) %>%
+  dplyr::rename("location_name" = "cov")
+
+check_detect_decline <- FuncDetectSummary(summary_dist_dat, incr_threshold = input$sel_max_increase_buffer)
+
+linked_dist_dat <- summary_dist_dat %>%
+  dplyr::left_join(check_detect_decline[c("location_name", "dist_detect_function")], by = "location_name")
+
+s <- attrs_selected(
+  showlegend = TRUE,
+  mode = "lines+markers")
+
+pal <- c("lightgray", "red") # red line if observed density does NOT show a monotonic decline
+pal <- setNames(pal, c("declining", "varying"))
+
+rv$linked_dist_plot <- plot_ly(
+  data = linked_dist_dat %>% highlight_key(~location_name, group = "Location"),
+  x = ~jitter(distance_midpt), y = ~sum_indiv_per_1000m2,
+  color = ~dist_detect_function,
+  colors = pal,
+  text = ~paste0("Location ID: ", location_name, "<br>Distance Bin: ", paste0(distance_bin_id, " (", distance_bin, ")"), "<br>Total Detections: ", sum_indiv, "<br>Indiv per 1000m2: ", sum_indiv_per_1000m2)) %>%
+  group_by(location_name) %>%
+  add_trace(mode = "markers+lines")%>%
+  layout(
+      title = "Click on a (jittered) POINT to highlight the location on the map",
+      yaxis = list(
+      title = "Detections/1000m2",
+      tickprefix = "   "), # hack for increasing space between y-axis title and tick labels
+    xaxis = list(
+      title = "Distance from Observer (m)")) %>%
+  highlight(on = "plotly_click", off = "plotly_deselect", selectize = FALSE, opacityDim = 0.6, selected = attrs_selected(showlegend = FALSE), color = "blue", persistent = FALSE)
+
+# Linked map
+hover_add <- maps_list[[paste0(sel_dist_map_park, "_100m")]] %>% 
+  sf::st_drop_geometry() %>%
+  dplyr::filter(buffer_m == 100) %>% dplyr::select(location_name, add_hover_text = hover_text)
+
+  linked_map_dat <- rv$detect_by_loc %>%
+    dplyr::filter(unit_code == sel_dist_map_park & species_codename ==  unique(rv$species_dist_dat$species_codename)) %>%
+    dplyr::left_join(check_detect_decline[c("location_name", "dist_detect_function")], by = "location_name") %>%
+  dplyr::left_join(hover_add, by = "location_name") %>%
+  dplyr::mutate(hover_text = paste(hover_text, "<br><br>", add_hover_text))
+  
+  pal_map <- leaflet::colorFactor(palette = c("red", "lightgray"), levels = c("varying", "declining"))
+  
+  rv$linked_dist_map <-
+    maps_list[[sel_dist_map_park]] %>%
+    addMapPane("point_size_counts", zIndex = 410) %>%
+    addMapPane("selected_points", zIndex = 420) %>%
+      addProviderTiles("Esri.WorldImagery", options = providerTileOptions(noWrap = TRUE), group="Satellite") %>%
+  addProviderTiles("OpenStreetMap", group = "OpenStreetMap") %>%
+    leaflet::addCircleMarkers(data = linked_map_dat, lng = ~longitude, lat = ~latitude, fill = TRUE, fillOpacity = 0.6, fillColor = pal_map(linked_map_dat$dist_detect_function), weight = 1, color = "black", radius = ~point_size*sel_dist_point_scale, label = ~point_text, popup = ~hover_text, group = "Avg Detections/Survey", options = pathOptions(pane = "point_size_counts")) %>%
+    # leaflet::addCircleMarkers(data = linked_map_dat %>% highlight_key(~location_name, group = "Location"), lng = ~longitude, lat = ~latitude, fill = TRUE, fillOpacity = 0.6, fillColor = "blue", weight = 1, color = "black", radius = ~point_size*sel_dist_point_scale, label = ~point_text, popup = ~hover_text, options = pathOptions(pane = "selected_points")) %>% # the linked data!
+    leaflet::addCircleMarkers(data = linked_map_dat %>% highlight_key(~location_name, group = "Location"), lng = ~longitude, lat = ~latitude, fillOpacity = 0, stroke = TRUE, weight = 4, color = "blue", radius = ~point_size*sel_dist_point_scale, label = ~point_text, popup = ~hover_text, options = pathOptions(pane = "selected_points")) %>% # the linked data!
+    addControl(paste0(unique(linked_map_dat$species_codename), " at ", sel_dist_map_park), position = "topleft", className="map-title") %>%
+    addLayersControl(
+    baseGroups = c("OpenStreetMap", "Satellite"),
+    overlayGroups = c("park veg", "100-m radius", "200-m radius", "Avg Detections/Survey"),
+    position = "topright", options = layersControlOptions(collapsed = TRUE)
+  )
+
+})
+```
+
+<span style="font-size:18px; color:red;">
+    HABITAT MAPS ARE SLOW TO DRAW - PLEASE BE PATIENT 
+</span>
+
+<div style='position:relative; height:1450px;'>
+<div style='position:absolute; left:0px; top:0px; height:700px; width:48%;'>
+```{r}
+renderPlotly({
+  shiny::req(!is.null(rv$linked_dist_plot))
+  rv$linked_dist_plot
+})
+```
+</div>
+
+<div style='position:absolute; right:0px; top:0px; height:700px; width:48%;'>
+```{r}
+renderLeaflet({
+  shiny::req(!is.null(rv$linked_dist_map))
+  rv$linked_dist_map
+})
+```
+</div>
+
+<div style='position:absolute; top:750px; height:700px; width:100%;'>
+```{r}
+DT::renderDataTable({
+  shiny::req(!is.null(rv$linked_dist_obs_dat))
+  table_dat <- rv$linked_dist_obs_dat %>% dplyr::select(location_name, yr, event_date, event_comments, observer, time_bin, distance_bin_id, distance_bin, count, hab_type_200, weather_wind, weather_noise, point_notes)
+  DT::datatable(
+    table_dat %>% highlight_key(~location_name, group = "Location"),
+    caption = htmltools::tags$caption(
+            style = 'caption-side: top; text-align: center;',
+            htmltools::h2("Point count data for selected location")),
+    class="compact stripe",
+    filter = "top",
+    extensions=c('Buttons','ColReorder'),
+    options = list(
+      scrollX = TRUE,
+      scrollCollapse = FALSE,
+      lengthMenu = list(c(10,25,50,-1),
+                        c(10,25,50,"All")),
+      pageLength = 25),
+    rownames= FALSE) %>% formatStyle("count", backgroundColor = "yellow")
+}, server=FALSE)
+```
+</div>
+</div>
+
+### Raw Data
+
+```{r}
+output$table_raw_dist <- renderReactable({
+  shiny::req(!is.null(rv$species_dist_dat))
+reactable::reactable(rv$species_dist_dat %>% dplyr::select(-time_bin_id, -distance_bin_id),
+                     defaultColDef = colDef(
+                       align = "center"
+                     ),
+                     compact = TRUE,
+                     bordered = TRUE,
+                     resizable = TRUE,
+                     striped = TRUE,
+                     highlight = TRUE,
+                     filterable = TRUE,
+                     showPageSizeOptions = TRUE,
+                     pageSizeOptions = c(10, 25, 50, 100),
+                     defaultPageSize = 25,
+                     fullWidth = TRUE,
+                     width = "auto")
+})
+reactableOutput("table_raw_dist")
+tags$style("#table_raw_dist{height:100vh;overflow-x:scroll;overflow-y:scroll}")
+
+```
+
+Distance Patterns for Analyses
+=========================================
+
+Inputs {.sidebar data-width=250}
+-------------------------------------
+```{r} 
+
+br()
+
+radioButtons("sel_dist_summary_group",
+               label = strong("Within park unit, summarize data by:"),
+               choiceNames = c("location", "species", "none"),
+             choiceValues = c("location_name", "species_codename", "none"),
+               inline = TRUE,
+               selected = "location_name")
+
+checkboxInput("sel_dist_combine_bins",
+                        label = strong("Combine first and second distance bins (first bin becomes 0 - 50m)"),
+                        value = FALSE)
+
+sliderInput("sel_analyses_max_detect_dist",
+              label = strong("Select a maximum detection distance, in meters (outer boundary of largest distance bin)"),
+              min = 100,
+              max = 300,
+              step = 10,
+              value = 200)
+
+sliderInput("sel_analyses_max_increase_buffer",
+              label = strong("Select a threshold density increase beyond which the detection distance function should be flagged"),
+              min = 0,
+              max = 0.5,
+              step = 0.05,
+              value = 0.05)
+
+actionButton("button_UpdateDetectFunctionPlots", "Update Plots", width = "100%", style="border-color:black; background-color: lightgreen; border:0px; margin:0px")
+```
+
+Tabs {.tabset .tabset-fade}
+-------------------------------------
+
+### Distance function patterns
+
+<font size="3">**Summary by location or species within each park unit**</font>
+  
+  * <font size="2"> For each species-park, the % of LOCATIONS or SPECIES (if summarized) in which the total detection DENSITY (# of detections per 1000m2)  increases from one distance bin to the next larger distance bin. Calculated for each distance bin separately. </font>
+    * <font size="2"> Large values (orange-colored) suggest violation of model's assumption of monotonic decline in detection density as distance from observer increases </font>
+  
+    * <font size="2"> For each species, only includes locations with at least one detection of the species </font>
+
+
+```{r}
+
+# Distance pattern for analyses
+output$table_dist_props <- DT::renderDT({
+  shiny::req(!is.null(rv$dist_detect_summary))
+  
+  violate_brks <- seq(5, 100, 5)
+  violate_cols <- c(NA, colorRampPalette(c("yellow", "red"))(length(violate_brks)))
+
+  # For each species-park, the % of LOCATIONS or SPECIES in which the total detection DENSITY (averaged across all survey events, # of detections per 1000m2) increases from one distance bin to the next larger distance bin. Calculated for each distance bin separately.
+
+  dist_summary <- rv$dist_detect_summary
+  if(input$sel_dist_summary_group != "none") {
+    dist_summary %<>%
+      dplyr::rename(grouping_var = input$sel_dist_summary_group) %>%
+      dplyr::group_by(grouping_var, unit_code) %>%
+    dplyr::summarize(
+      tot_detections = sum(tot_detect),
+      N = ifelse(input$sel_dist_summary_group == "species_codename", length(unique(location_name)), length(unique(species_codename))),
+      bin_0to1_prop_increase = ifelse("bin_0to1" %in% names(.), round(100*sum(bin_0to1 == "increase")/n()), NA),
+      bin_1to2_prop_increase = round(100*sum(bin_1to2 == "increase")/n()),
+      bin_2to3_prop_increase = ifelse("bin_2to3" %in% names(.), round(100*sum(bin_2to3 == "increase")/n()), NA)) %>%
+      dplyr::select(unit_code, grouping_var, tot_detections, N, everything())
+
+    if(!"bin_0to1" %in% names(rv$dist_detect_summary)) {dist_summary$bin_0to1_prop_increase <- NULL}
+    if(!"bin_2to3" %in% names(rv$dist_detect_summary)) {dist_summary$bin_2to3_prop_increase <- NULL}
+
+    names(dist_summary)[names(dist_summary) == "grouping_var"] <- input$sel_dist_summary_group
+    names(dist_summary)[names(dist_summary) == "N"] <- ifelse(input$sel_dist_summary_group == "species_codename", "num_locations", "num_species")
+  }
+
+  dist_summary_dt <- DT::datatable(
+    dist_summary,
+    caption = htmltools::tags$caption(
+      style = 'caption-side: top; text-align: center;',
+      htmltools::h2("Distance function, evaluation of monotonic decline")),
+    class="compact stripe",
+    rownames= FALSE,
+    extensions = c('Buttons', 'ColReorder'),
+    filter = 'top',
+    options = list(
+      autoWidth = TRUE,
+      dom = 'Blrtip',
+      buttons = c('copy', 'csv', 'excel'),
+      lengthMenu = list(c(10,25,50,-1),
+                        c(10,25,50,"All")),
+      pageLength = -1,
+      scrollX = TRUE,
+      scrollCollapse = FALSE,
+      columnDefs = list(list(className = "dt-center", targets = "_all"))
+    ))
+
+  if(input$sel_dist_summary_group == "none") {
+    dist_summary_dt %<>%
+      formatStyle(columns = names(dist_summary)[stringr::str_detect(names(dist_summary), "bin_")], target = "cell", backgroundColor = styleEqual(
+      levels = c("increase"),
+      values = c("orange"))) %>%
+    formatStyle(columns = c("dist_detect_function"), target = "cell", backgroundColor = styleEqual(
+      levels = c("varying"),
+      values = c("orange")))
+
+    # if("bin_0to1" %in% names(rv$dist_detect_summary)) {
+    #   dist_summary_dt %<>%
+    #     formatStyle(c(5,9,12), `border-right` = "solid 2px")
+    # } else {
+    #   dist_summary_dt %<>%
+    #     formatStyle(c(5,8,10), `border-right` = "solid 2px")
+    # }
+
+  } else {
+    cat("line1821")
+    dist_summary_dt %<>%
+      formatStyle(columns = names(dist_summary)[stringr::str_detect(names(dist_summary), "bin_")], target = "cell", backgroundColor = styleInterval(violate_brks, violate_cols)) %>%
+    formatStyle(columns = c("tot_detections"), target = "cell", backgroundColor = styleInterval(c(300, 600), c(NA, "lightgreen", "green"))) 
+    # %>%
+    # formatStyle(c(2,4), `border-right` = "solid 2px")
+  }
+})
+
+DT::DTOutput("table_dist_props")
+tags$style("#table_dist_props{height:100vh;overflow-x:scroll;overflow-y:scroll}")
+```
