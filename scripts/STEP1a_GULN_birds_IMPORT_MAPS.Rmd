@@ -5,6 +5,7 @@ output:
   html_document:
     df_print: kable
     fig_caption: yes
+    self_contained: yes
     highlight: haddock
     keep_md: yes
     smart: no
@@ -43,27 +44,27 @@ active_points_file <- "GULN_Active_Monitoring_Points_2022.csv"
 FuncCalcBuffer <- function(buff_dist, point_buff) {
     
     # Calculate intersection of buffered point with veg polygons
-    veg_buff <- st_intersection(park_map, point_buff)
+    hab_buff <- st_intersection(park_map, point_buff)
     
-     # calculate area of each simple veg class in each buffered point area
-    veg_buff_prop <- veg_buff %>% 
+     # calculate area of each habitat group in each buffered point area
+    hab_buff_prop <- hab_buff %>% 
       mutate(
         intersect_area = st_area(.) %>% as.numeric()) %>%
       as_tibble() %>% 
-      group_by(location_name, simp_veg) %>% 
+      group_by(location_name, hab_group) %>% 
       summarize(
-        area_by_veg = sum(intersect_area)) %>% 
+        area_by_hab = sum(intersect_area)) %>% 
       dplyr::mutate(
         buffer_m = buff_dist,
-        num_veg = length(unique(simp_veg)),
-        prop_veg = 100*round(area_by_veg/sum(area_by_veg, na.rm = TRUE), 2),
-        sum_area = sum(area_by_veg), # some point buffers will be incomplete 
-        dom_veg = simp_veg[area_by_veg == max(area_by_veg, na.rm = TRUE)],
-        dom_veg_prop = prop_veg[simp_veg == dom_veg]) %>%
-      dplyr::filter(prop_veg != 0) %>%
+        num_hab = length(unique(hab_group)),
+        prop_hab = 100*round(area_by_hab/sum(area_by_hab, na.rm = TRUE), 2),
+        sum_area = sum(area_by_hab), # some point buffers will be incomplete 
+        dom_hab = hab_group[area_by_hab == max(area_by_hab, na.rm = TRUE)],
+        dom_hab_prop = prop_hab[hab_group == dom_hab]) %>%
+      dplyr::filter(prop_hab != 0) %>%
       dplyr::mutate(
-        veg_string = paste(paste0(simp_veg, "(", prop_veg, "%)", collapse =", "))) %>%
-      tidyr::pivot_wider(id_cols = -area_by_veg, names_from = simp_veg, values_from = prop_veg)
+        hab_string = paste(paste0(hab_group, "(", prop_hab, "%)", collapse =", "))) %>%
+      tidyr::pivot_wider(id_cols = -area_by_hab, names_from = hab_group, values_from = prop_hab)
       }
 
 ### Create the data frame of location with correct UTM information ----
@@ -130,6 +131,7 @@ maps_list[["GULN"]] <- final_guln_map
 
 # Then, the individual park maps
 for (unit in c("BITH", "GUIS-FL", "GUIS-MS", "JELA", "PAAL", "SAAN", "VICK")) {
+  cat(unit)
   
   if(unit == "VICK") {
   sf_use_s2(FALSE)
@@ -140,12 +142,7 @@ for (unit in c("BITH", "GUIS-FL", "GUIS-MS", "JELA", "PAAL", "SAAN", "VICK")) {
 
   # Map of point count locations ----
   bird_locs <- df_zones %>%
-  dplyr::filter(unit_code == unit) 
-  # %>%
-  # dplyr::mutate(border_col = case_when(hab_type_200 == "open" ~ "#B8DE29FF", # light green
-  #                                      hab_type_200 == "shrub" ~ "#56C667FF", # medium green
-  #                                      hab_type_200 == "forest" ~ "#1F968BFF") # dark green
-  # )
+    dplyr::filter(unit_code == unit) 
 
  bird_locs_sf <- sf::st_as_sf(bird_locs, coords = c("longitude", "latitude"), crs =st_crs(4326))
 
@@ -174,7 +171,7 @@ for (unit in c("BITH", "GUIS-FL", "GUIS-MS", "JELA", "PAAL", "SAAN", "VICK")) {
                                          LUC_II_GEN %in% shrub ~ "Shrub",
                                          LUC_II_GEN %in% forest ~ "Forest",
                                          LUC_II_GEN %in% water ~ "Water",
-                                         LUC_II_GEN %in% crop ~ "Agricultural",
+                                         LUC_II_GEN %in% crop ~ "Agriculture",
                                          LUC_II_GEN %in% open_developed ~ "Open - Developed",
                                          LUC_II_GEN %in% road_trail ~ "Roads and Trails",
                                          LUC_II_GEN %in% developed ~ "Developed",
@@ -184,28 +181,37 @@ for (unit in c("BITH", "GUIS-FL", "GUIS-MS", "JELA", "PAAL", "SAAN", "VICK")) {
                                          simp_veg == "Shrub" ~ "#56C667FF", # medium green
                                          simp_veg == "Forest" ~ "#1F968BFF", # dark green
                                          simp_veg == "Water" ~ "#C7EAE5", # light blue
-                                         simp_veg == "Agricultural" ~ "#DFC27D", # light brown
+                                         simp_veg == "Agriculture" ~ "#DFC27D", # light brown
                                          simp_veg == "Open - Developed" ~ "#E6E6E6", # light gray
                                          simp_veg == "Roads and Trails" ~ "#440154FF", # dark purple
                                          simp_veg == "Developed" ~ "#4D4D4D", # dark gray
-                                         simp_veg == "Other" ~ "#FDBB84")) %>% # light orange
-      dplyr::mutate(
-        popup_text = paste0("<span style='font-size:12px; font-weight:bold;'>", simp_veg, "</span><br>AREA: ", AREA, "<br>MAP CLASS: ", MAP_CLASS, "<br>DESCRIPTOR: ", MAP_DESC, "<br>CLASS: ", CLASS, "<br>LUC_II_GEN: ", LUC_II_GEN, "<br>COMMENTS: ", COMMENTS))
+                                         simp_veg == "Other" ~ "#FDBB84"), # light orange
+                    hab_group = case_when(simp_veg %in% c("Open - Developed", "Developed", "Roads and Trails", "Open", "Agriculture") ~ "open_developed",
+                                          simp_veg == "Forest" ~ "forest",
+                                          simp_veg == "Shrub" ~ "shrub",
+                                          simp_veg == "Water" ~ "water",
+                                          .default = "other"), # e.g., mud flats, etc.
+                    popup_text = paste0("<span style='font-size:12px; font-weight:bold;'>", simp_veg, "</span><br>AREA: ", AREA, "<br>MAP CLASS: ", MAP_CLASS, "<br>DESCRIPTOR: ", MAP_DESC, "<br>CLASS: ", CLASS, "<br>LUC_II_GEN: ", LUC_II_GEN, "<br>COMMENTS: ", COMMENTS))
     }
 
   # > BITH
   if(unit == "BITH") {
+    park_map$Physiognom[park_map$Physiognom %in% c("Shrublands", "Shrubland")] <- "Shrub"
     park_map %<>%
       dplyr::rename(simp_veg = Physiognom) %>%
       dplyr::mutate(fill_col = case_when(simp_veg == "Herbaceous Vegetation" ~ "#B8DE29FF", # light green
                                          simp_veg == "Sparse Vegetation" ~ "#8C510A", # brown
-                                         simp_veg %in% c("Shrublands", "Shrubland") ~ "#56C667FF", # medium green
+                                         simp_veg == "Shrub" ~ "#56C667FF", # medium green
                                          simp_veg == "Woodland and Forest" ~ "#1F968BFF", # dark green
                                          simp_veg == "Water" ~ "#C7EAE5", # light blue
                                          simp_veg == "Agriculture" ~ "#DFC27D", # light brown
-                                         simp_veg == "Developed" ~ "#4D4D4D")) %>% # light orange
-      dplyr::mutate(
-        popup_text = paste0("<span style='font-size:12px; font-weight:bold;'>", simp_veg, "</span><br>AREA: ", SHAPE_Area, "<br>MAP CLASS 2: ", Map_Clas_2, "<br>NOTES: ", Notes))
+                                         simp_veg == "Developed" ~ "#4D4D4D"), # light orange
+                    hab_group = case_when(simp_veg == "Woodland and Forest" ~ "forest",
+                                          simp_veg %in% c("Herbaceous Vegetation", "Sparse Vegetation", "Developed", "Agriculture") ~ "open_developed", # grasslands, forbs, trails, developed areas...
+                                          simp_veg == "Shrub" ~ "shrub",
+                                          simp_veg == "Water" ~ "water",
+                                          .default = "other"), # e.g., mud flats, etc.
+                    popup_text = paste0("<span style='font-size:12px; font-weight:bold;'>", simp_veg, "</span><br>AREA: ", SHAPE_Area, "<br>MAP CLASS 2: ", Map_Clas_2, "<br>NOTES: ", Notes))
 }
 
   # > JELA
@@ -225,9 +231,13 @@ for (unit in c("BITH", "GUIS-FL", "GUIS-MS", "JELA", "PAAL", "SAAN", "VICK")) {
                                          simp_veg == "Marsh" ~ "#8C510A", # brown
                                          simp_veg == "Forest" ~ "#1F968BFF", # dark green
                                          simp_veg == "Water" ~ "#C7EAE5", # light blue
-                                         simp_veg == "Other" ~ "#FDBB84")) %>% # light orange
-      dplyr::mutate(
-        popup_text = paste0("<span style='font-size:12px; font-weight:bold;'>", simp_veg, "</span><br>MC_CATNAME: ", MC_CatName, "<br>MC_COVERMO: ", MC_CoverMo, "<br>AREA: ", Area))
+                                         simp_veg == "Other" ~ "#FDBB84"), # light orange
+                    hab_group = case_when(simp_veg == "Forest" ~ "forest",
+                                          simp_veg %in% c("Open", "Developed") ~ "open_developed", # grasslands, forbs, trails, developed areas...
+                                          simp_veg == "Shrub" ~ "shrub",
+                                          simp_veg == "Water" ~ "water",
+                                          .default = "other"), # e.g., mud flats, etc.
+                    popup_text = paste0("<span style='font-size:12px; font-weight:bold;'>", simp_veg, "</span><br>MC_CATNAME: ", MC_CatName, "<br>MC_COVERMO: ", MC_CoverMo, "<br>AREA: ", Area))
     }
 
   # > VICK
@@ -255,9 +265,13 @@ for (unit in c("BITH", "GUIS-FL", "GUIS-MS", "JELA", "PAAL", "SAAN", "VICK")) {
                                          simp_veg == "Forest" ~ "#1F968BFF", # dark green
                                          simp_veg == "Water" ~ "#C7EAE5", # light blue
                                          simp_veg == "Developed" ~ "#4D4D4D", # dark gray
-                                         simp_veg == "Other" ~ "#FDBB84")) %>% # light orange
-      dplyr::mutate(
-        popup_text = paste0("<span style='font-size:12px; font-weight:bold;'>", simp_veg, "</span><br>DESCRIPTOR: ", DESCRIPTOR, "<br>ACRES: ", Acres))
+                                         simp_veg == "Other" ~ "#FDBB84"), # light orange
+                    hab_group = case_when(simp_veg == "Forest" ~ "forest",
+                                          simp_veg %in% c("Open", "Developed") ~ "open_developed", # grasslands, forbs, trails, developed areas...
+                                          simp_veg == "Shrub" ~ "shrub",
+                                          simp_veg == "Water" ~ "water",
+                                          .default = "other"), # e.g., mud flats, etc.
+                    popup_text = paste0("<span style='font-size:12px; font-weight:bold;'>", simp_veg, "</span><br>DESCRIPTOR: ", DESCRIPTOR, "<br>ACRES: ", Acres))
     }
 
   # > PAAL
@@ -277,9 +291,13 @@ for (unit in c("BITH", "GUIS-FL", "GUIS-MS", "JELA", "PAAL", "SAAN", "VICK")) {
                                          simp_veg == "Bare Soils" ~ "#DFC27D", # light brown
                                          simp_veg == "Shrub" ~ "#56C667FF", # medium green
                                          simp_veg == "Forest" ~ "#1F968BFF", # dark green
-                                         simp_veg == "Other" ~ "#FDBB84")) %>% # light orange
-      dplyr::mutate(
-        popup_text = paste0("<span style='font-size:12px; font-weight:bold;'>", simp_veg, "</span><br>AREA: ", AREA, "<br>DESCRIPTOR: ", descriptio))
+                                         simp_veg == "Other" ~ "#FDBB84"), # light orange
+                    hab_group = case_when(simp_veg == "Forest" ~ "forest",
+                                          simp_veg %in% c("Open", "Bare Soils", "Developed") ~ "open_developed", # grasslands, forbs, trails, developed areas...
+                                          simp_veg == "Shrub" ~ "shrub",
+                                          simp_veg == "Water" ~ "water",
+                                          .default = "other"), # e.g., mud flats, etc.
+                    popup_text = paste0("<span style='font-size:12px; font-weight:bold;'>", simp_veg, "</span><br>AREA: ", AREA, "<br>DESCRIPTOR: ", descriptio))
   }
 
     # > GUIS
@@ -293,9 +311,13 @@ for (unit in c("BITH", "GUIS-FL", "GUIS-MS", "JELA", "PAAL", "SAAN", "VICK")) {
                                            simp_veg == "Woodlands and Forest" ~ "#1F968BFF", # dark green
                                            simp_veg == "Water" ~ "#C7EAE5", # light blue
                                            simp_veg == "Wetlands" ~ "#DFC27D", # light brown
-                                           simp_veg == "Developed" ~ "#4D4D4D")) %>% # light orange
-        dplyr::mutate(
-        popup_text = paste0("<span style='font-size:12px; font-weight:bold;'>", simp_veg, "</span><br>ACRES: ", Acres, "<br>MAP_CLAS_1: ", Map_Clas_1, "<br>NOTES: ", Notes))
+                                           simp_veg == "Developed" ~ "#4D4D4D"), # light orange
+                      hab_group = case_when(simp_veg == "Woodlands and Forest" ~ "forest",
+                                          simp_veg %in% c("Open", "Developed", "Herbaceous Vegetation", "Sparse Vegetation") ~ "open_developed", # grasslands, forbs, trails, developed areas...
+                                          simp_veg == "Shrublands" ~ "shrub",
+                                          simp_veg == "Water" ~ "water",
+                                          .default = "other"), # e.g., mud flats, etc.
+                      popup_text = paste0("<span style='font-size:12px; font-weight:bold;'>", simp_veg, "</span><br>ACRES: ", Acres, "<br>MAP_CLAS_1: ", Map_Clas_1, "<br>NOTES: ", Notes))
     }
 
     # Check/fix problems with self-intersections
@@ -329,7 +351,7 @@ for (unit in c("BITH", "GUIS-FL", "GUIS-MS", "JELA", "PAAL", "SAAN", "VICK")) {
     hover_df <- buff_df %>%
       dplyr::group_by(location_name) %>%
       dplyr::mutate(
-        hover_text = paste0("<span style='font-size:12px; font-weight:bold;'>", location_name, "</span><br><span style='font-size:12px; font-weight:bold;'>", dom_veg[buffer_m == 50], " (", dom_veg_prop[buffer_m == 50], "%) / ", dom_veg[buffer_m == 100], " (", dom_veg_prop[buffer_m == 100], "%) / ", dom_veg[buffer_m == 200], " (", dom_veg_prop[buffer_m == 200], "%) </span><br>50M RADIUS:  ", veg_string[buffer_m == 50], "<br>100M RADIUS:  ", veg_string[buffer_m == 100], "<br>200M RADIUS:  ", veg_string[buffer_m == 200])
+        hover_text = paste0("<span style='font-size:12px; font-weight:bold;'>", location_name, "</span><br><span style='font-size:12px; font-weight:bold;'>", dom_hab[buffer_m == 50], " (", dom_hab_prop[buffer_m == 50], "%) / ", dom_hab[buffer_m == 100], " (", dom_hab_prop[buffer_m == 100], "%) / ", dom_hab[buffer_m == 200], " (", dom_hab_prop[buffer_m == 200], "%) </span><br>50M RADIUS:  ", hab_string[buffer_m == 50], "<br>100M RADIUS:  ", hab_string[buffer_m == 100], "<br>200M RADIUS:  ", hab_string[buffer_m == 200])
       )
     
     bird_locs_100m %<>%
@@ -348,7 +370,7 @@ for (unit in c("BITH", "GUIS-FL", "GUIS-MS", "JELA", "PAAL", "SAAN", "VICK")) {
   addMapPane("pane_points200m", zIndex = 230) %>%
   addMapPane("pane_points100m", zIndex = 240) %>%
   addPolygons(data = park_map, label = ~simp_veg, popup = ~popup_text, color = ~fill_col, fillOpacity = 1, group="park veg", options = pathOptions(pane = "pane_unit")) %>%
-  addPolygons(data = bird_locs_100m, label = ~location_name, popup =~hover_text, weight = 1, color = "white", opacity = 0.7, group = "100-m radius", options = pathOptions(pane = "pane_points100m")) %>%
+  addPolygons(data = bird_locs_100m, label = ~location_name, labelOptions = labelOptions(noHide = TRUE, textOnly = TRUE), popup =~hover_text, weight = 1, color = "white", opacity = 0.7, group = "100-m radius", options = pathOptions(pane = "pane_points100m")) %>%
   addPolygons(data = bird_locs_200m, label = ~location_name, weight = 1, color = "white", opacity = 0.4, group = "200-m radius", options = pathOptions(pane = "pane_points200m")) %>%
   fitBounds(bbox[1], bbox[2], bbox[3], bbox[4]) %>%
   addScaleBar() %>%

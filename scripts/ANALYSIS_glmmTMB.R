@@ -1,7 +1,7 @@
 ### GULN BIRDS - glmmTMB
 
 ### FINAL MODELS ----
-# > Should use % forest w/in 100m as covariate, instead of the two-level habitat type. But remember that different parks may define "forest" differently
+# > Should use % forest w/in 100m as covariate, instead of the two-level habitat type. But remember that different parks may define "forest" differently. Also, sometimes only part of the 100-m point buffer lies within park boundary and we only have habitat data for what lies within park boundary, so those habitat estimates (e.g., % forest) may no misleading
 # > brms cross-validate for "model selection" (instead of AICc)
 # > ORDINATION to identify points that are very "different" from expectations based on habitat? Remember there were a couple sites at one park that I was going to suggest dropping b/c numbers often inexplicably very different there
 # > With year-factor models, glmmTMB RE variances seem way too small, and get those strangely huge 95%CI's for years with 0 detections (for Poisson model; then for ZIP, the estimates are NaN for 95% CI's)

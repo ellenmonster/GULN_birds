@@ -1,0 +1,181 @@
+﻿uniq_Id,Park_Unit,Location_Name,X,Y,Active,Map_Class,Physiognomy
+294,Big Thicket Turkey Creek Unit,TC01,30.5795002,-94.3422012,TRUE,Bald-cypress - Water Tupelo Floodplain Forest,Woodland and Forest
+295,Big Thicket Turkey Creek Unit,TC02,30.4766998,-94.3532028,TRUE,Oak Species Mixed Hardwood Floodplain Forest,Woodland and Forest
+296,Big Thicket Turkey Creek Unit,TC03,30.4687996,-94.3594971,TRUE,Oak Species Mixed Hardwood Floodplain Forest,Woodland and Forest
+297,Big Thicket Turkey Creek Unit,TC04,30.5573997,-94.344902,TRUE,Oak Species Wet Mixed Hardwood Flatwoods Forest,Woodland and Forest
+298,Big Thicket Turkey Creek Unit,TC05,30.5326996,-94.3392029,TRUE,Mixed Hardwoods - Loblolly Pine Floodplain Forest,Woodland and Forest
+299,Big Thicket Turkey Creek Unit,TC06,30.5618,-94.3472977,TRUE,Baygall Seepage Bog,Woodland and Forest
+300,Big Thicket Turkey Creek Unit,TC07,30.5221996,-94.3467026,TRUE,Mixed Hardwoods - Loblolly Pine Floodplain Forest,Woodland and Forest
+301,Big Thicket Turkey Creek Unit,TC08,30.5970001,-94.3472977,TRUE,Mixed Hardwoods - Loblolly Pine Floodplain Forest,Woodland and Forest
+302,Big Thicket Turkey Creek Unit,TC09,30.5506992,-94.3414001,TRUE,Oak Species Wet Mixed Hardwood Flatwoods Forest,Woodland and Forest
+303,Big Thicket Turkey Creek Unit,TC10,30.6009998,-94.3560028,TRUE,Oak Species Mixed Hardwood Floodplain Forest,Woodland and Forest
+304,Big Thicket Turkey Creek Unit,TC11,30.4762993,-94.3373032,TRUE,"Longleaf Pine - (Shortleaf Pine, Loblolly Pine, Slash Pine) Forest and Woodland",Woodland and Forest
+305,Big Thicket Turkey Creek Unit,TC12,30.5485992,-94.344101,TRUE,Loblolly Pine - (Shortleaf Pine) Nonriverine Flatwoods Forest,Woodland and Forest
+306,Big Thicket Turkey Creek Unit,TC13,30.5881996,-94.3544998,TRUE,Baygall Seepage Bog,Woodland and Forest
+307,Big Thicket Turkey Creek Unit,TC14,30.5312996,-94.3431015,TRUE,Mixed Hardwoods - Loblolly Pine Floodplain Forest,Woodland and Forest
+310,Big Thicket Turkey Creek Unit,TC17,30.5611992,-94.3336029,TRUE,Baygall Seepage Bog,Woodland and Forest
+311,Big Thicket Turkey Creek Unit,TC18,30.5846996,-94.3358994,TRUE,"Longleaf Pine - (Shortleaf Pine, Loblolly Pine, Slash Pine) Forest and Woodland",Woodland and Forest
+312,Big Thicket Turkey Creek Unit,TC19,30.4715004,-94.3476028,TRUE,Bald-cypress - Water Tupelo Floodplain Forest,Woodland and Forest
+313,Big Thicket Turkey Creek Unit,TC20,30.5855007,-94.3554001,TRUE,Loblolly Pine - Mixed Hardwoods Slope and Small Stream Forest,Woodland and Forest
+314,Big Thicket Turkey Creek Unit,TC21,30.5622005,-94.3393021,TRUE,Loblolly Pine - Mixed Hardwoods Slope and Small Stream Forest,Woodland and Forest
+315,Big Thicket Turkey Creek Unit,TC22,30.5352993,-94.3376999,TRUE,Oak Species Mixed Hardwood Floodplain Forest,Woodland and Forest
+318,Big Thicket Turkey Creek Unit,TC25,30.5459003,-94.3567963,TRUE,"Longleaf Pine - (Shortleaf Pine, Loblolly Pine, Slash Pine) Forest and Woodland",Woodland and Forest
+320,Big Thicket Turkey Creek Unit,TC27,30.6119003,-94.3498001,TRUE,Oak Species Mixed Hardwood Floodplain Forest,Woodland and Forest
+322,Big Thicket Turkey Creek Unit,TC29,30.5646992,-94.3331985,TRUE,"Longleaf Pine - (Shortleaf Pine, Loblolly Pine, Slash Pine) Forest and Woodland",Woodland and Forest
+324,Big Thicket Turkey Creek Unit,TC31,30.5245991,-94.3368988,TRUE,Loblolly Pine - Mixed Hardwoods Slope and Small Stream Forest,Woodland and Forest
+326,Big Thicket Turkey Creek Unit,TC33,30.5410004,-94.3491974,TRUE,Oak Species Wet Mixed Hardwood Flatwoods Forest,Woodland and Forest
+327,Big Thicket Turkey Creek Unit,TC34,30.5534992,-94.3539963,TRUE,Loblolly Pine - (Shortleaf Pine) Nonriverine Flatwoods Forest,Woodland and Forest
+328,Big Thicket Turkey Creek Unit,TC35,30.5293999,-94.3343964,TRUE,Mixed Hardwood Mesic Slope Forest,Woodland and Forest
+329,Big Thicket Turkey Creek Unit,TC36,30.5645008,-94.3463974,TRUE,Mixed Hardwoods - Loblolly Pine Floodplain Forest,Woodland and Forest
+330,Big Thicket Turkey Creek Unit,TC37,30.4743004,-94.3450012,TRUE,Mixed Hardwoods - Loblolly Pine Floodplain Forest,Woodland and Forest
+331,Big Thicket Turkey Creek Unit,TC38,30.5130005,-94.339798,TRUE,Baygall Seepage Bog,Woodland and Forest
+332,Big Thicket Turkey Creek Unit,TC39,30.4659996,-94.3345032,TRUE,Bald-cypress - Water Tupelo Floodplain Forest,Woodland and Forest
+333,Big Thicket Turkey Creek Unit,TC40,30.4976997,-94.3347015,TRUE,Mixed Hardwoods - Loblolly Pine Floodplain Forest,Woodland and Forest
+104,Gulf Islands Florida Unit,GUISFL12,30.3654003,-87.1509018,TRUE,Sand Pine / Sand Live Oak - Myrtle Oak - False Rosemary Woodland,Woodlands and Forest
+108,Gulf Islands Florida Unit,GUISFL16,30.3707008,-87.1264038,TRUE,Slash Pine - (Longleaf Pine) / Yaupon - Saw Palmetto - Wax-myrtle Woodland,Woodlands and Forest
+109,Gulf Islands Florida Unit,GUISFL17,30.3637009,-87.1486969,TRUE,Sand Pine / Sand Live Oak - Myrtle Oak - False Rosemary Woodland,Woodlands and Forest
+114,Gulf Islands Florida Unit,GUISFL21,30.3773994,-87.1353989,TRUE,"Swamp Tupelo - Sweetbay - (Slash Pine) / (Southern Bayberry, Scentless Bayberry) Swamp Forest",Woodlands and Forest
+115,Gulf Islands Florida Unit,GUISFL22,30.3691998,-87.1328964,TRUE,Myrtle Oak - Sand Live Oak - Sand Heath - False Rosemary Shrubland,Shrublands
+116,Gulf Islands Florida Unit,GUISFL23,30.3666992,-87.1222,TRUE,Myrtle Oak - Sand Live Oak - Sand Heath - False Rosemary Shrubland,Shrublands
+117,Gulf Islands Florida Unit,GUISFL24,30.3637009,-87.1435013,TRUE,Sand Pine / Sand Live Oak - Myrtle Oak - False Rosemary Woodland,Woodlands and Forest
+119,Gulf Islands Florida Unit,GUISFL26,30.3785,-87.1314011,TRUE,Sand Pine / Sand Live Oak - Myrtle Oak - False Rosemary Woodland,Woodlands and Forest
+120,Gulf Islands Florida Unit,GUISFL27,30.3696003,-87.1389999,TRUE,Slash Pine - (Longleaf Pine) / Yaupon - Saw Palmetto - Wax-myrtle Woodland,Woodlands and Forest
+121,Gulf Islands Florida Unit,GUISFL28,30.3658009,-87.1402969,TRUE,Sand Pine / Sand Live Oak - Myrtle Oak - False Rosemary Woodland,Woodlands and Forest
+122,Gulf Islands Florida Unit,GUISFL29,30.3715992,-87.1191025,TRUE,"Swamp Tupelo - Sweetbay - (Slash Pine) / (Southern Bayberry, Scentless Bayberry) Swamp Forest",Woodlands and Forest
+125,Gulf Islands Florida Unit,GUISFL31,30.3677006,-87.1353989,TRUE,Myrtle Oak - Sand Live Oak - Sand Heath - False Rosemary Shrubland,Shrublands
+141,Gulf Islands Florida Unit,GUISFL46,30.368,-87.129303,TRUE,Slash Pine - (Longleaf Pine) / Yaupon - Saw Palmetto - Wax-myrtle Woodland,Woodlands and Forest
+142,Gulf Islands Florida Unit,GUISFL47,30.3775997,-87.1280975,TRUE,Sand Pine / Sand Live Oak - Myrtle Oak - False Rosemary Woodland,Woodlands and Forest
+167,Gulf Islands Mississippi Unit,GUISMS26,30.3901005,-88.7890015,TRUE,Slash Pine - (Longleaf Pine) / Yaupon - Saw Palmetto - Wax-myrtle Woodland,Woodlands and Forest
+168,Gulf Islands Mississippi Unit,GUISMS27,30.3967991,-88.7879028,TRUE,"Swamp Tupelo - Sweetbay - (Slash Pine) / (Southern Bayberry, Scentless Bayberry) Swamp Forest",Woodlands and Forest
+169,Gulf Islands Mississippi Unit,GUISMS28,30.4008999,-88.7931976,TRUE,Water Oak Ruderal Forest,Woodlands and Forest
+174,Gulf Islands Mississippi Unit,GUISMS32,30.3969002,-88.7820969,TRUE,Slash Pine - (Longleaf Pine) / Yaupon - Saw Palmetto - Wax-myrtle Woodland,Woodlands and Forest
+176,Gulf Islands Mississippi Unit,GUISMS34,30.3974991,-88.7774963,TRUE,Slash Pine - (Longleaf Pine) / Yaupon - Saw Palmetto - Wax-myrtle Woodland,Woodlands and Forest
+178,Gulf Islands Mississippi Unit,GUISMS36,30.3985004,-88.7854996,TRUE,Slash Pine - (Longleaf Pine) / Yaupon - Saw Palmetto - Wax-myrtle Woodland,Woodlands and Forest
+181,Gulf Islands Mississippi Unit,GUISMS39,30.3959999,-88.7794037,TRUE,Slash Pine - (Longleaf Pine) / Yaupon - Saw Palmetto - Wax-myrtle Woodland,Woodlands and Forest
+183,Gulf Islands Mississippi Unit,GUISMS40,30.3920002,-88.7873993,TRUE,Water Oak Ruderal Forest,Woodlands and Forest
+61,Jean Lafitte Barataria Unit,BP 01,29.7994003,-90.1232986,TRUE,Ruderal Water Oak Forest,Woodlands and Forest
+62,Jean Lafitte Barataria Unit,BP 02,29.7889996,-90.1130981,TRUE,Ruderal Bottomland Deciduous Forest,Woodlands and Forest
+63,Jean Lafitte Barataria Unit,BP 03,29.7952995,-90.1010971,TRUE,Ruderal Mixed Spoil Bank Forest,Woodlands and Forest
+64,Jean Lafitte Barataria Unit,BP 04,29.7929993,-90.1243973,TRUE,Ruderal Mixed Spoil Bank Forest,Woodlands and Forest
+65,Jean Lafitte Barataria Unit,BP 05,29.8057995,-90.1213989,TRUE,Ruderal Water Oak Forest,Woodlands and Forest
+66,Jean Lafitte Barataria Unit,BP 06,29.7842007,-90.1083984,TRUE,Ruderal Bottomland Deciduous Forest,Woodlands and Forest
+67,Jean Lafitte Barataria Unit,BP 07,29.7931004,-90.1039963,TRUE,Disturbed Woody Wetland,Woodlands and Forest
+68,Jean Lafitte Barataria Unit,BP 08,29.7877007,-90.1020966,TRUE,Disturbed Woody Wetland,Woodlands and Forest
+71,Jean Lafitte Barataria Unit,BP 11,29.7924995,-90.1115036,TRUE,Delta Backslope Swamp Forest,Woodlands and Forest
+73,Jean Lafitte Barataria Unit,BP 13,29.7933998,-90.1327972,TRUE,Ruderal Mixed Spoil Bank Forest,Woodlands and Forest
+74,Jean Lafitte Barataria Unit,BP 14,29.7912006,-90.1289978,TRUE,Ruderal Mixed Spoil Bank Forest,Woodlands and Forest
+76,Jean Lafitte Barataria Unit,BP 16,29.8031998,-90.1131973,TRUE,Natural Levee Live Oak Forest,Woodlands and Forest
+77,Jean Lafitte Barataria Unit,BP 17,29.7896004,-90.1203003,TRUE,Delta Backslope Swamp Forest,Woodlands and Forest
+79,Jean Lafitte Barataria Unit,BP 19,29.7817001,-90.110199,TRUE,Ruderal Bottomland Deciduous Forest,Woodlands and Forest
+80,Jean Lafitte Barataria Unit,BP 20,29.7642002,-90.1036987,TRUE,Ruderal Water Oak Forest,Woodlands and Forest
+83,Jean Lafitte Barataria Unit,BP 23,29.8008003,-90.1155014,TRUE,Natural Levee Live Oak Forest,Woodlands and Forest
+84,Jean Lafitte Barataria Unit,BP 24,29.7926998,-90.1160965,TRUE,Ruderal Bottomland Deciduous Forest,Woodlands and Forest
+85,Jean Lafitte Barataria Unit,BP 25,29.7633991,-90.1092987,TRUE,Ruderal Bottomland Deciduous Forest,Woodlands and Forest
+86,Jean Lafitte Barataria Unit,BP 26,29.7882996,-90.1082001,TRUE,Ruderal Bottomland Deciduous Forest,Woodlands and Forest
+87,Jean Lafitte Barataria Unit,BP 27,29.7957993,-90.1343002,TRUE,Arrowhead - Spikerush - Maidencane Marsh,Marsh
+88,Jean Lafitte Barataria Unit,BP 28,29.8076992,-90.1259003,TRUE,Ruderal Water Oak Forest,Woodlands and Forest
+90,Jean Lafitte Barataria Unit,BP 30,29.7490997,-90.1427994,TRUE,Delta Backslope Swamp Forest,Woodlands and Forest
+91,Jean Lafitte Barataria Unit,BP 31,29.7852993,-90.1057968,TRUE,Ruderal Bottomland Deciduous Forest,woodlands and Forest
+92,Jean Lafitte Barataria Unit,BP 32,29.7840996,-90.1120987,TRUE,Floating & Submerged Aquatic Marsh,Marsh
+93,Jean Lafitte Barataria Unit,BP 33,29.8057003,-90.1139984,TRUE,Bald-cypress Wooded Marsh,Woodlands and Forest
+96,Jean Lafitte Barataria Unit,BP 36,29.7814007,-90.1044998,TRUE,Natural Levee Live Oak Forest,Woodlands and Forest
+99,Jean Lafitte Barataria Unit,BP 39,29.7861996,-90.1183014,TRUE,Delta Backslope Swamp Forest,Woodlands and Forest
+100,Jean Lafitte Barataria Unit,BP 40,29.8017006,-90.1091003,TRUE,Ruderal Mixed Spoil Bank Forest,Woodlands and Forest
+335,Jean Lafitte Barataria Unit,BP 41,29.84968,-90.13183,TRUE,Ruderal Mixed Spoil Bank Forest,Woodland and Forest
+336,Jean Lafitte Barataria Unit,BP 42,29.84177,-90.12486,TRUE,Delta Backslope Swamp Forest,Woodland and Forest
+337,Jean Lafitte Barataria Unit,BP 43,29.8419,-90.128,TRUE,Ruderal Mixed Spoil Bank Forest,Woodland and Forest
+338,Jean Lafitte Barataria Unit,BP 44,29.77963,-90.09815,TRUE,Natural Levee Live Oak Forest,Woodland and Forest
+189,Palo Alto Battlefield NHP,PAAL04,26.0380001,-97.4722977,TRUE,Borrichia frutescens Prairie,prairie
+190,Palo Alto Battlefield NHP,PAAL05,26.0259991,-97.464798,TRUE,Dead and Sparse grasses,grassland
+191,Palo Alto Battlefield NHP,PAAL06,26.0263996,-97.4713974,TRUE,Dead and Sparse grasses,grassland
+192,Palo Alto Battlefield NHP,PAAL08,26.0104008,-97.4750977,TRUE,Borrichia frutescens Prairie,prairie
+193,Palo Alto Battlefield NHP,PAAL09,26.0144997,-97.4758987,TRUE,Mesquital Prairie,prairie
+194,Palo Alto Battlefield NHP,PAAL10,26.0132999,-97.4707031,TRUE,Borrichia frutescens Prairie,prairie
+195,Palo Alto Battlefield NHP,PAAL12,26.0349998,-97.4740982,TRUE,Borrichia frutescens Prairie,prairie
+196,Palo Alto Battlefield NHP,PAAL15,26.0076008,-97.466301,TRUE,Dead and Sparse grasses,grassland
+197,Palo Alto Battlefield NHP,PAAL16,26.0335999,-97.4641037,TRUE,Borrichia frutescens Prairie,prairie
+198,Palo Alto Battlefield NHP,PAAL21,26.0049992,-97.4686966,TRUE,Dead and Sparse grasses,grassland
+199,Palo Alto Battlefield NHP,PAAL22,26.0312996,-97.4731979,TRUE,Borrichia frutescens Prairie,prairie
+200,Palo Alto Battlefield NHP,PAAL26,26.0277004,-97.4748993,TRUE,Tamaulipan Brush,brush
+201,Palo Alto Battlefield NHP,PAAL31,26.0172005,-97.4719009,TRUE,Borrichia frutescens Prairie,prairie
+202,Palo Alto Battlefield NHP,PAAL33,26.0228004,-97.4800034,TRUE,Borrichia frutescens Prairie,prairie
+203,Palo Alto Battlefield NHP,PAAL34,26.0226002,-97.4709015,TRUE,Dead and Sparse grasses,grassland
+204,Palo Alto Battlefield NHP,PAAL36,26.0349007,-97.4689026,TRUE,Borrichia frutescens Prairie,prairie
+205,Palo Alto Battlefield NHP,PAAL38,26.0112991,-97.4682007,TRUE,Borrichia frutescens Prairie,prairie
+206,Palo Alto Battlefield NHP,PAAL39,26.0200996,-97.4662018,TRUE,Spartina spartinae Prairie,prairie
+207,Palo Alto Battlefield NHP,PAAL40,26.0167007,-97.4779968,TRUE,Borrichia frutescens Prairie,prairie
+208,Palo Alto Battlefield NHP,PAAL41,26.0279999,-97.4655991,TRUE,Mesquital Prairie,prairie
+209,Palo Alto Battlefield NHP,PAAL43,26.0266991,-97.4688034,TRUE,Dead and Sparse grasses,grassland
+210,Palo Alto Battlefield NHP,PAAL45,26.0098991,-97.4723969,TRUE,Borrichia frutescens Prairie,prairie
+211,Palo Alto Battlefield NHP,PAAL48,26.0195007,-97.4738007,TRUE,Borrichia frutescens Prairie,prairie
+212,Palo Alto Battlefield NHP,PAAL49,26.0373001,-97.4764023,TRUE,Sonchus asper Prairie,prairie
+213,Palo Alto Battlefield NHP,PAAL51,26.0170994,-97.4682999,TRUE,Spartina spartinae Prairie,prairie
+214,Palo Alto Battlefield NHP,PAAL54,26.0063992,-97.4707031,TRUE,Borrichia frutescens Prairie,prairie
+215,Palo Alto Battlefield NHP,PAAL55,26.0226994,-97.475502,TRUE,Spartina spartinae Prairie,prairie
+216,Palo Alto Battlefield NHP,PAAL57,26.0303001,-97.4770966,TRUE,Sonchus asper Prairie,prairie
+217,Palo Alto Battlefield NHP,PAAL58,26.031601,-97.4661026,TRUE,Spartina spartinae Prairie,prairie
+254,San Antonio Missions,SAAN01,29.0960007,-98.1660004,TRUE,Honey Mesquite - Granjeno / Prickly-pear species - South Texas Ericameria Woodland,Deciduous Woodland
+255,San Antonio Missions,SAAN02,29.0981998,-98.1629028,TRUE,Planted / Cultivated,Fields and Croplands
+256,San Antonio Missions,SAAN03,29.0988998,-98.1651993,TRUE,Cedar Elm - Sugarberry / Possum-haw / Virginia Wild Rye Forest,Deciduous Forest
+257,San Antonio Missions,SAAN04,29.0977001,-98.1673965,TRUE,Honey Mesquite - Granjeno / Prickly-pear species - South Texas Ericameria Woodland,Deciduous Woodland
+258,San Antonio Missions,SAAN05,29.0995998,-98.1605988,TRUE,Eastern Cottonwood Termporarily Flooded Alliance,Deciduous Forest
+259,San Antonio Missions,SAAN06,29.0939999,-98.1668015,TRUE,Chaparro - Prieto Shrubland,Deciduous Shrubland
+260,San Antonio Missions,SAAN07,29.3374996,-98.4560013,TRUE,Pecan - Sugarberry Forest,Deciduous Forest
+261,San Antonio Missions,SAAN08,29.3323002,-98.4496002,TRUE,Pecan - Sugarberry Forest,Deciduous Forest
+262,San Antonio Missions,SAAN09,29.3292999,-98.4552002,TRUE,Silver Beardgrass - Johnsongrass Herbaceous Vegetation,Introduced Grassland
+264,San Antonio Missions,SAAN11,29.3304996,-98.4522018,TRUE,Silver Beardgrass - Johnsongrass Herbaceous Vegetation,Introduced Grassland
+265,San Antonio Missions,SAAN12,29.3253002,-98.4567032,TRUE,Old Field Weedy Herbaceous Vegetation,Forbland
+266,San Antonio Missions,SAAN13,29.3227005,-98.4555969,TRUE,Privet Shrubland Stand,Evergreen Shrubland
+267,San Antonio Missions,SAAN14,29.3267994,-98.4586029,TRUE,Old Field Weedy Herbaceous Vegetation,Forbland
+268,San Antonio Missions,SAAN15,29.3476009,-98.4680023,TRUE,Bermuda Grass Herbaceous Alliance,Introduced Grassland
+269,San Antonio Missions,SAAN16,29.3337002,-98.4529037,TRUE,Huisache - (Honey Mesquite) Woodland,Deciduous Woodland
+270,San Antonio Missions,SAAN17,29.3313999,-98.4476013,TRUE,Huisache - (Honey Mesquite) Woodland,Deciduous Woodland
+272,San Antonio Missions,SAAN19,29.3428993,-98.4582977,TRUE,Bermuda Grass Herbaceous Alliance,Introduced Grassland
+274,San Antonio Missions,SAAN21,29.3188,-98.4489975,TRUE,Pecan - Sugarberry Forest,Deciduous Forest
+275,San Antonio Missions,SAAN22,29.3402004,-98.4573975,TRUE,Bermuda Grass Herbaceous Alliance,Introduced Grassland
+276,San Antonio Missions,SAAN23,29.3171997,-98.4468994,TRUE,Planted / Cultivated,Fields and Croplands
+278,San Antonio Missions,SAAN25,29.3278999,-98.4615021,TRUE,Pecan - Sugarberry Forest,Deciduous Forest
+279,San Antonio Missions,SAAN26,29.3384991,-98.4625015,TRUE,Pecan - Sugarberry Forest,Deciduous Forest
+280,San Antonio Missions,SAAN27,29.3320999,-98.4564972,TRUE,Pecan - Sugarberry Forest,Deciduous Forest
+281,San Antonio Missions,SAAN28,29.3290997,-98.447998,TRUE,Pecan - Sugarberry Forest,Deciduous Forest
+283,San Antonio Missions,SAAN30,29.3899994,-98.4933014,TRUE,Pecan - Sugarberry Forest,Deciduous Forest
+284,San Antonio Missions,SAAN31,29.3174,-98.4509964,TRUE,Huisache - (Honey Mesquite) Woodland,Deciduous Woodland
+285,San Antonio Missions,SAAN32,29.3202,-98.4511032,TRUE,Bermuda Grass Herbaceous Alliance,Introduced Grassland
+287,San Antonio Missions,SAAN34,29.3286991,-98.4593964,TRUE,Huisache - (Honey Mesquite) Woodland,Deciduous Woodland
+288,San Antonio Missions,SAAN35,29.3362007,-98.4589996,TRUE,Huisache - (Honey Mesquite) Woodland,Deciduous Woodland
+290,San Antonio Missions,SAAN37,29.3279991,-98.4506989,TRUE,Silver Beardgrass - Johnsongrass Herbaceous Vegetation,Introduced Grassland
+291,San Antonio Missions,SAAN38,29.3605003,-98.479599,TRUE,Parking Lot,Roads and Trails
+292,San Antonio Missions,SAAN39,29.3635006,-98.4801025,TRUE,Honey Mesquite - Granjeno / Prickly-pear species - South Texas Ericameria Woodland,Deciduous Woodland
+293,San Antonio Missions,SAAN40,29.3918991,-98.4916,TRUE,Bermuda Grass Herbaceous Alliance,Introduced Grassland
+47,Vicksburg NMP,VE106,32.37194102,-90.86990466,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+53,Vicksburg NMP,VE110,32.37346213,-90.83525772,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+43,Vicksburg NMP,VE119,32.37392255,-90.83762967,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+13,Vicksburg NMP,VF03,32.35311128,-90.8491243,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+4,Vicksburg NMP,VF08,32.35814657,-90.83871731,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+24,Vicksburg NMP,VF12,32.37171769,-90.84948223,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+23,Vicksburg NMP,VF17,32.3708121,-90.86272014,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+8,Vicksburg NMP,VF27,32.36629063,-90.84065471,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+5,Vicksburg NMP,VF29,32.36218032,-90.83868566,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+11,Vicksburg NMP,VF31,32.37886376,-90.85689645,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+19,Vicksburg NMP,VF32,32.37366765,-90.84456919,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+21,Vicksburg NMP,VF33,32.37616425,-90.84637175,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+15,Vicksburg NMP,VF36,32.33999896,-90.85817341,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+18,Vicksburg NMP,VF38,32.34086838,-90.85123104,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+25,Vicksburg NMP,VF42,32.35812259,-90.84609215,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+12,Vicksburg NMP,VF57,32.35492268,-90.84532946,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+35,Vicksburg NMP,VM05,32.37669317,-90.85719945,TRUE,"Sycamore - (Green Ash, Sugarberry, Silver Maple) Temporarily Flooded Forest Alliance",Woodlands and Forest
+52,Vicksburg NMP,VM06,32.37548915,-90.86527528,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+38,Vicksburg NMP,VM07,32.3592075,-90.8418527,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+36,Vicksburg NMP,VM14,32.34113229,-90.8551008,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+49,Vicksburg NMP,VM16,32.37684101,-90.85470946,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+39,Vicksburg NMP,VM25,32.37169566,-90.85376974,TRUE,"Johnson grass, Bahia grass",grassland
+59,Vicksburg NMP,VM26,32.37698568,-90.86262711,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+51,Vicksburg NMP,VM28,32.3741065,-90.84702095,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+56,Vicksburg NMP,VM29,32.34747324,-90.85505088,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+54,Vicksburg NMP,VM39,32.33835972,-90.85640624,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+45,Vicksburg NMP,VM41,32.37846042,-90.843182,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+40,Vicksburg NMP,VM51,32.36286451,-90.84634686,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+50,Vicksburg NMP,VM52,32.34780301,-90.84840372,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+41,Vicksburg NMP,VM53,32.37679229,-90.85051001,TRUE,Shumard Oak - Cherrybark Oak Forest Alliance,Woodlands and Forest
+42,Vicksburg NMP,VM54,32.37794349,-90.86638435,TRUE,"Developed, Open Space",Mowed Lawn
+27,Vicksburg NMP,VO08,32.36933566,-90.87041525,TRUE,"Johnson grass, Bahia grass",grassland

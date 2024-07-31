@@ -5,6 +5,7 @@ output:
   html_document:
     df_print: kable
     fig_caption: yes
+    self_contained: yes
     highlight: haddock
     keep_md: yes
     smart: no
@@ -18,8 +19,7 @@ output:
 ---
 
 ```{r setup, include = FALSE}
-# rm(list=ls())
-
+rm(list=ls())
 pkgs <- c("readr", "tidyverse", "here", "janitor", "magrittr", "lubridate", "data.table", "knitr", "DT", "StreamMetabolism", "lutz", "hms")
 installed_pkgs <- pkgs %in% installed.packages()
 if (length(pkgs[!installed_pkgs]) > 0) install.packages(pkgs[!installed_pkgs], repos = "https://cloud.r-project.org" , dep=TRUE)
@@ -51,10 +51,10 @@ options(
 
 # File names -- CHANGE AS NEEDED
 
-counts_file <- "GULN_AllParks_BBirdObservations_2010-2022.csv"
+counts_file <- "GULN_bird_counts.csv" # This is the combination of (sans VICK) GULN 2010-2022 data with VICK 2010-2023 data
 park_lists_file <- "Park_lists_2017.csv"
 veg_file <- "GULN_AllParks_BBird_Veg_061522.csv"
-conditions_file <- "GULN_AllParks_BBird_SiteConditions_2010-2022.csv"
+conditions_file <- "GULN_AllParks_BBird_SiteConditions.csv"
 
 # These are data already cleaned in 1a file
 df_zones <- readRDS(here::here("Data_out", "df_zones.RDS"))
@@ -63,7 +63,8 @@ df_active <- readRDS(here::here("Data_out", "df_active.RDS"))
 
 # Read in data and format remaining data
 df_initialdat <- read_csv(here::here("Data_in", counts_file),
-                    col_types = cols(PointNotes = col_character(), 
+                    col_types = cols(TimeBinID = col_character(),
+                                     PointNotes = col_character(), 
                                      EventComments = col_character())) %>%
   janitor::clean_names("snake") %>%
   dplyr::filter(location_name %in% df_active$location_name) %>% # just keep survey locations regularly surveyed after the 2018 protocol peer review (active monitoring points)
@@ -86,35 +87,31 @@ df_species <- read_csv(here::here("Data_in", park_lists_file)) %>%
     scientific_name = latin_name) %>%
   dplyr::distinct()
   
-# Extract the map-calculated dominant vegetation for 100-m and 200-m radius
+# Extract the map-calculated percent forest, percent open-developed, and dominant habitat group for 100-m and 200-m radius
 df_buffer_info <- bind_rows(maps_list[names(maps_list)[str_detect(names(maps_list), "_dat")]], .id = "column_label") %>%
-  dplyr::mutate(unit_code = gsub("_dat", "", column_label)) %>% 
+  rowwise() %>%
+  dplyr::mutate(
+    unit_code = gsub("_dat", "", column_label),
+    perc_forest = round(forest/100, 2),
+    perc_opendev = round(open_developed/100, 2)) %>%
   dplyr::select(unit_code, everything(), -column_label)
+df_buffer_info$perc_forest[is.na(df_buffer_info$perc_forest)] <- 0
+df_buffer_info$perc_opendev[is.na(df_buffer_info$perc_opendev)] <- 0
 
-dom_veg_100 <- df_buffer_info %>%
+dom_hab_100 <- df_buffer_info %>%
   dplyr::filter(buffer_m == 100) %>%
-  dplyr::select(location_name, dom_veg_100 = dom_veg, dom_veg_prop_100 = dom_veg_prop) %>%
+  dplyr::select(location_name, dom_hab_100 = dom_hab, dom_hab_prop_100 = dom_hab_prop, perc_forest_100 = perc_forest, perc_opendev_100 = perc_opendev) %>%
   dplyr::mutate(
-    temp_hab_type = case_when(
-      dom_veg_100 %in% c("Open", "Marsh", "Agricultural")  ~ "open",
-      dom_veg_100 %in% c("Shrub", "Shrublands") ~ "shrub",
-      dom_veg_100 %in% c("Developed", "Open - Developed") ~ "developed",
-      dom_veg_100 %in% c("Woodlands and Forest", "Woodland and Forest", "Forest") ~ "forest"),
-    hab_type_100 = ifelse(dom_veg_prop_100 >= 60, temp_hab_type, "mixed")) %>%
-      dplyr::select(-temp_hab_type)
+    hab_type_100 = ifelse(dom_hab_prop_100 >= 60, dom_hab_100, "mixed"))
 
-dom_veg <- df_buffer_info %>%
+# THis is absurdly inefficient code!!
+dom_hab <- df_buffer_info %>%
   dplyr::filter(buffer_m == 200) %>%
-  dplyr::select(location_name, dom_veg_200 = dom_veg, dom_veg_prop_200 = dom_veg_prop) %>%
+  dplyr::select(location_name, dom_hab_200 = dom_hab, dom_hab_prop_200 = dom_hab_prop, perc_forest_200 = perc_forest, perc_opendev_200 = perc_opendev) %>%
   dplyr::mutate(
-    temp_hab_type = case_when(
-      dom_veg_200 %in% c("Open", "Marsh", "Agricultural")  ~ "open",
-      dom_veg_200 %in% c("Shrub", "Shrublands") ~ "shrub",
-      dom_veg_200 %in% c("Developed", "Open - Developed") ~ "developed",
-      dom_veg_200 %in% c("Woodlands and Forest", "Woodland and Forest", "Forest") ~ "forest"),
-    hab_type_200 = ifelse(dom_veg_prop_200 >= 60, temp_hab_type, "mixed")) %>%
-      dplyr::select(-temp_hab_type) %>%
-  dplyr::full_join(dom_veg_100, by = "location_name")
+    hab_type_200 = ifelse(dom_hab_prop_200 >= 60, dom_hab_200, "mixed")
+  ) %>%
+  dplyr::full_join(dom_hab_100, by = "location_name")
       
 understory_wide <- df_zones %>%
   dplyr::select(-lidar_count, -lidar_area) %>%
@@ -123,7 +120,7 @@ understory_wide <- df_zones %>%
 df_locs <- read_csv(here::here("Data_in", veg_file)) %>%
   janitor::clean_names("snake") %>%
   dplyr::select(location_name, map_class, physiognomy) %>%
-  dplyr::left_join(dom_veg, by = "location_name") %>%
+  dplyr::left_join(dom_hab, by = "location_name") %>%
   dplyr::left_join(understory_wide, by = "location_name") %>% 
   dplyr::filter(location_name %in% unique(df_initialdat$location_name)) %>%
   dplyr::distinct()
@@ -215,8 +212,8 @@ count_template <- merge(
 # Number of indiv detected per species for each survey, including zeros filled in. This does not account for probability of detection--it is only number of individuals detected. For each park, includes all species ever detected during a point count in the park.
 df_full_obs <- df_finaldat %>%
   dplyr::inner_join(df_species[c("unit_code", "species_code")] %>% distinct(), by = c("unit_code", "species_code")) %>%
-  dplyr::select(location_name, event_date, species_code, count) %>%
-    dplyr::group_by(location_name, event_date, species_code) %>%
+  dplyr::select(observer, location_name, event_date, species_code, count) %>%
+    dplyr::group_by(observer, location_name, event_date, species_code) %>%
     dplyr::summarize(
       sum_indiv = sum(count, na.rm = TRUE)) %>%
     dplyr::ungroup() %>% 
@@ -392,7 +389,7 @@ Please edit or delete incorrect records, then re-import the updated sample locat
 
 ```{r}
 duplic_loc <- df_locs %>%
-  dplyr::group_by(location_name) %>%
+  dplyr::group_by(unit_code, location_name) %>%
   dplyr::summarize(duplicated= n() > 1) %>%
   dplyr::filter(duplicated== TRUE)
 
@@ -463,7 +460,7 @@ Please edit or delete incorrect records, then re-import the updated site conditi
 
 ```{r}
 duplic_conditions <- df_survey_conditions %>%
-  dplyr::group_by(location_name, event_date) %>%
+  dplyr::group_by(unit_code, location_name, event_date) %>%
   dplyr::summarize(duplicated= n() > 1) %>%
   dplyr::filter(duplicated== TRUE)
 
@@ -490,7 +487,7 @@ If available, please add the missing covariate information to these records, the
 
 ```{r}
 missing_cov <- df_survey_conditions %>%
-  dplyr::select(network, location_name, event_date, time, weather_wind_num, weather_temperature, weather_sky, weather_count_season, weather_noise_num) %>%
+  dplyr::select(unit_code, location_name, event_date, researcher, time, weather_wind_num, weather_temperature, weather_sky, weather_count_season, weather_noise_num) %>%
   dplyr::filter(!complete.cases(.))
 
 if(nrow(missing_cov) > 0) {
@@ -520,7 +517,7 @@ conditions_time <- df_survey_conditions %>%
   dplyr::distinct()
 
 obs_time <- df_initialdat %>%
-  dplyr::select(location_name, event_date, time) %>%
+  dplyr::select(unit_code, location_name, event_date, time) %>%
   dplyr::distinct()
 
 obs_time_mismatch <-
@@ -584,7 +581,7 @@ Please add the missing information in the following bird observation records, th
 
 ```{r}
 incomplete_records <- df_initialdat %>%
-  dplyr::select(location_name, event_date, species_code, distance_bin_id, count, data_status) %>%
+  dplyr::select(unit_code, location_name, event_date, species_code, distance_bin_id, count, data_status) %>%
   dplyr::filter(!complete.cases(.)) %>%
   dplyr::arrange(location_name, event_date, species_code)
 

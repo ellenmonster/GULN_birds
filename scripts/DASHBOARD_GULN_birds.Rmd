@@ -7,7 +7,13 @@ output:
 runtime: shiny
 ---
 ```{r setup}
-# >>>>>>>>>>>>> PICK UP FROM HERE. 
+
+### QUESTION ON HOW TO PORTRAY THINGS
+# > When a categorical covariate is in the best-fit model, then the predictions differ by covariate level. Should they be plotted separately for each level? Should I use the mode of the level (e.g., wind--but perhaps not for habitat type)? Or should I just take the mean and CI of all the predicted values, instead of using something like emmeans?  And what if the inclusion of that level differs for yearmod vs trend? For the trend line I can't just take the mean and CI but would probably want to do a separate trend line for each level.
+
+# >>> PICK UP FROM HERE
+# - ADD OPTION TO PLOT (IMPORTED MODEL) TREND ESTIMATES OR RAW TREND ESTIMATES ON MAP??? AND TREND PLOTS???
+
 # > FIX COMMON SPECIES COLORING FOR GUIS
 # > For distance detection function, calculate the "midpoint" correctly, based on area of the radius
 # > Instead of raw data page for detection patterns, should have the big summary table that indicates also tot counts and decline-or-not (color-coded). <<<<
@@ -22,6 +28,8 @@ runtime: shiny
 
 ##### TO FIX!!!
 # > Maps seem to be linked and affecting each other
+
+
 
 rm(list=ls())
 
@@ -67,6 +75,42 @@ rv <- reactiveValues(
   linked_dist_plot = NULL,
   dist_detect_summary = NULL) # clear everything
 
+dat_list <- reactiveValues(df_finaldat = NULL, df_locs = NULL, df_buffer_info = NULL, df_survey_conditions = NULL, df_full_obs_cov = NULL, events = NULL, df_detail_species = NULL, df_species = NULL)
+
+# Read in the files that won't change for raw vs. analysis data
+maps_list <- readRDS(here::here("Data_out", "maps_list.RDS"))
+dat_list$df_locs <- readRDS(here::here("Data_out", "df_locs.RDS")) # site locations
+dat_list$df_buffer_info <- readRDS(here::here("Data_out", "df_buffer_info.RDS")) # info on habitat within various distances from survey point center
+
+
+# THIS FUNCTION SHOULD MATCH ANALYSIS_STARTUP.R FUNCTION
+FuncSubsetAnalysisData <- function(dat) {
+  # Remove data we will not use
+  
+    ## For VICK, only using Daniel's data and only data starting 2012 so can avoid messy changes of researchers and also the very odd timing of 5 surveys (the yr_visits had long timespans that overlapped each other) in 2010
+    dat %<>%
+      dplyr::filter((unit_code != "VICK") | (observer == "Twedt, Daniel" & yr >= 2012 & yr_visit != "2023_3"))
+
+    ## For BITH, REMOVE first three years of data b/c each of these first three years had a different researcher and strong researcher impact
+    dat %<>% dplyr::filter(unit_code != "BITH" | yr >= 2017)
+    dat %<>% dplyr::filter(unit_code != "BITH" | yr_visit != "2018_2")
+
+  ## For GUIS...
+    dat %<>%
+      dplyr::filter((!unit_code %in% c("GUIS-MS", "GUIS-FL")) | !observer %in% c("Walker,  Jake", "Sculley,  Mike"))
+
+    ## For PAAL...
+
+    # NOTE: I only started doing this for models I ran in May 2024
+    dat %<>%
+      dplyr::filter(unit_code != "PAAL" | (observer == "Pruitt,  Kenneth" & yr >= 2013))
+    
+    dat %<>%
+      droplevels(.) 
+
+  return(dat)
+}
+
 ```
 
 ```{r import}
@@ -74,9 +118,25 @@ rv <- reactiveValues(
 
 # Important changes:
 # > recoded sky conditions so order is fog < drizzle < rain, instead of rain < fog < drizzle
+observeEvent(eventExpr = input$button_ImportData, {
+  shiny::req(!is.null(input$sel_data))
+  
+  withProgress(message = "Importing and formatting data...", value = 0, {
+  
 
-dat_list <- list()
-dat_list$df_finaldat <- readRDS(here::here("Data_out", "df_finaldat.RDS")) %>% 
+# Read in data that may be subset if user selects Analysis Data
+temp_survey_conditions <- readRDS(here::here("Data_out", "df_survey_conditions.RDS")) %>% 
+  dplyr::rename(observer = researcher) %>% 
+  dplyr::mutate(yr = lubridate::year(event_date)) 
+# %>%
+#   dplyr::filter(!is.na(time)) # event covariate data <<<<< INITIAL FORMATTING SHOULD HAVE TAKEN CARE OF REMOVING RECORDS WITH NO TIME ENTRY
+
+temp_full_obs <- readRDS(here::here("Data_out", "df_full_obs.RDS")) %>% dplyr::filter(!yr_visit %in% c("2014_2", "2016_2", "2018_2")) # <<<<<<<<<<<<<<<< BITH HAS ONE LOC (TC29) SURVEYED TWICE IN 2018, SO IT'S THE ONLY SITE WITH A YR_VISIT OF 2018_2 AND TC39 AS 2016_2. NEED TO CHECK ON THIS, BUT EXCLUDE IT FOR NOW.
+
+temp_yr_visits <- temp_full_obs %>% dplyr::select(location_name, event_date, yr_visit) %>% distinct() # Extract this to append yr_visits column to other data frames
+
+# Format data
+temp_finaldat <- readRDS(here::here("Data_out", "df_finaldat.RDS")) %>% 
   dplyr::mutate(
     species_codename = paste0(common_name, " (", species_code, ")"), # This gives the individual data records, including detection distance and detection time
     time_bin_id = as.integer(time_bin_id),
@@ -85,25 +145,57 @@ dat_list$df_finaldat <- readRDS(here::here("Data_out", "df_finaldat.RDS")) %>%
       time_bin_id %in% 2:3 ~ "2-4min",
       time_bin_id %in% 4:5 ~ "4-6min",
       time_bin_id %in% 6:7 ~ "6-8min",
-      time_bin_id %in% 8:9 ~ "8-10min"))
-dat_list$df_locs <- readRDS(here::here("Data_out", "df_locs.RDS")) # site locations
-dat_list$df_buffer_info <- readRDS(here::here("Data_out", "df_buffer_info.RDS")) # info on habitat within various distances from survey point center
-dat_list$df_survey_conditions <- readRDS(here::here("Data_out", "df_survey_conditions.RDS")) %>% dplyr::filter(!is.na(time)) # event covariate data <<<<< INITIAL FORMATTING SHOULD HAVE TAKEN CARE OF REMOVING RECORDS WITH NO TIME ENTRY
-df_full_obs <- readRDS(here::here("Data_out", "df_full_obs.RDS")) %>% dplyr::filter(!yr_visit %in% c("2014_2", "2016_2", "2018_2")) # <<<<<<<<<<<<<<<< BITH HAS ONE LOC (TC29) SURVEYED TWICE IN 2018, SO IT'S THE ONLY SITE WITH A YR_VISIT OF 2018_2 AND TC39 AS 2016_2. NEED TO CHECK ON THIS, BUT EXCLUDE IT FOR NOW.
-maps_list <- readRDS(here::here("Data_out", "maps_list.RDS"))
+      time_bin_id %in% 8:9 ~ "8-10min")) %>% 
+  dplyr::left_join(temp_yr_visits, by = c("location_name", "event_date"))
 
+temp_survey_conditions %<>% 
+  dplyr::left_join(temp_yr_visits, by = c("location_name", "event_date"))
 
+# Recalculate sum_indiv if dropping last distance bin (analysis data)
 
-# Combine summary observation and covariate data ----
+# Check for any weird distance bin combinations
+temp_finaldat %>% dplyr::select(distance_bin_id, distance_bin) %>% distinct()
+
+ if (input$sel_data == "analysis_data") { # recalc sum_indiv if user selects analysis data (i.e., limiting to 100m)
+   temp_finaldat %<>% dplyr::filter(distance_bin_id %in% c("0", "1", "2")) %>% droplevels(.) # excludes distance bin 3 and also weird ones like "UNK"
+    
+   temp_full_obs$sum_indiv <- NULL
+    
+    # Drop the last distance bin and get new sums
+    new_sums <- temp_finaldat %>%
+      dplyr::group_by(location_name, event_date, species_code) %>%
+      dplyr::summarize(sum_indiv = sum(count, na.rm = TRUE))
+    
+    # Now put the new sums in obs_dat
+    temp_full_obs %<>% 
+      dplyr::left_join(new_sums, by = c("location_name", "event_date", "species_code"))
+    temp_full_obs$sum_indiv[is.na(temp_full_obs$sum_indiv)] <- 0
+    }
+
+# Combine summary observation and covariate data
 # This gives the total detections for a survey event and species, along with the covariates for that survey event
-dat_list$df_full_obs_cov <- df_full_obs %>%
+temp_full_obs %<>%
+  dplyr::select(-observer) %>%
   dplyr::left_join(dat_list$df_locs %>% dplyr::select(-map_class, -physiognomy, -unit_code, -latitude, -longitude, -geometry), by = "location_name") %>%
-  dplyr::left_join(dat_list$df_survey_conditions %>% dplyr::select(location_name, event_date, wk, hrs_since_rise, julian_prop, weather_wind, weather_wind_num, weather_temperature, weather_sky, weather_sky_revised_num, weather_noise, weather_noise_num), by = c("location_name", "event_date")) %>%
+  dplyr::left_join(temp_survey_conditions %>% dplyr::select(observer, location_name, event_date, wk, hrs_since_rise, julian_prop, weather_wind, weather_wind_num, weather_temperature, weather_sky, weather_sky_revised_num, weather_noise, weather_noise_num), by = c("location_name", "event_date")) %>%
   dplyr::mutate(
     species_codename = paste0(common_name, " (", species_code, ")"),
-    hover_text = paste0("<span style='font-size:12px; font-weight:bold;'>", unit_code, " ", yr_visit, "<br>", species_codename, "</span><br>Location: ", location_name, "<br>Habitat Type (200m): ", hab_type_200, "<br>Dominant Veg (200m): ", paste0(dom_veg_200, "(", dom_veg_prop_200, "%)"), "<br>Survey Date: ", event_date, "<br># of Individuals: ", sum_indiv))
+    hover_text = paste0("<span style='font-size:12px; font-weight:bold;'>", unit_code, " ", yr_visit, "<br>", species_codename, "</span><br>Location: ", location_name, "<br>Habitat Type (100m): ", hab_type_100, "<br>Dominant Habitat (100m): ", paste0(dom_hab_100, "(", dom_hab_prop_100, "%)"), "<br>Survey Date: ", event_date, "<br># of Individuals: ", sum_indiv))
 
+# Now that all event-species have been filled in, remove the survey events excluded from analyses. Do this for temp_full_obs, temp_finaldat, temp_survey_conditions
+ if (input$sel_data == "analysis_data") {
+   
+   dat_list$df_finaldat <- FuncSubsetAnalysisData(temp_finaldat)
+   dat_list$df_full_obs_cov <- FuncSubsetAnalysisData(temp_full_obs)
+   dat_list$df_survey_conditions <- FuncSubsetAnalysisData(temp_survey_conditions)
+ } else {
+   dat_list$df_finaldat <- temp_finaldat
+   dat_list$df_full_obs_cov <- temp_full_obs
+   dat_list$df_survey_conditions <- temp_survey_conditions
+ }
+  
 dat_list$events <- dat_list$df_full_obs_cov %>% dplyr::select(unit_code, location_name, event_date, yr_visit) %>% dplyr::distinct() %>% dplyr::arrange(unit_code, event_date)
+
 # Park maps points
 temp_map_counts <- dat_list$df_full_obs_cov %>%
   dplyr::select(unit_code, location_name, species_codename, yr, event_date, sum_indiv) %>%
@@ -171,12 +263,12 @@ dat_list$df_species <- dat_list$df_full_obs_cov %>%
 # Update reactives
 
 rv$detect_by_loc <- dat_list$df_locs %>%
-  dplyr::select(location_name, latitude, longitude, dom_veg_200, dom_veg_prop_200, hab_type_200) %>%
+  dplyr::select(location_name, latitude, longitude, dom_hab_100, dom_hab_prop_100, hab_type_100) %>%
   dplyr::right_join(temp_map_counts, by = "location_name") %>%
   dplyr::mutate(
     point_text = paste0(location_name, " (", detections_per_survey, " detections/survey)"),
     point_size = ifelse(detections_per_survey < 0.1, 1, detections_per_survey*10), # set a minimum point size
-    hover_text = paste0("<span style='font-size:12px; font-weight:bold;'>", location_name, " ", species_codename, "</span><br>Habitat: ", hab_type_200, "<br>Detections/Survey: ", detections_per_survey)
+    hover_text = paste0("<span style='font-size:12px; font-weight:bold;'>", location_name, " ", species_codename, "</span><br>Habitat: ", hab_type_100, "<br>Detections/Survey: ", detections_per_survey)
   )
 
 # Commonly detected species. This identifies the 'commonly detected' species to use in analyses, defined as having at least 20 detections per survey round on average, in the years from 2019 on
@@ -209,7 +301,10 @@ rv$df_common <- rbind(
   remainder_common) 
 write_csv(isolate(rv$df_common), here::here("Data_out", "common_species_df.csv"))
 
-rm(df_full_obs); rm(calc_recent_surv_round); rm(species_sparkbar); rm(temp_map_counts); 
+rm(temp_finaldat); rm(temp_full_obs); rm(calc_recent_surv_round); rm(species_sparkbar); rm(temp_map_counts)
+
+})
+})
 
 ```
 
@@ -312,7 +407,7 @@ FuncYrBoxPlotly <- function(dat, free_y) {
     plotly::do(p = subplot_box(.)) %>%
     subplot(
       nrows = NROW(.), 
-      shareX = FALSE,
+      shareX = TRUE,
       shareY = ifelse(free_y, FALSE, TRUE),
       titleX = FALSE,
       titleY = TRUE,
@@ -325,6 +420,83 @@ FuncYrBoxPlotly <- function(dat, free_y) {
     ) %>%
     hide_legend(.)
 }
+
+FuncYrLinePlotly <- function(dat, color_by, line_by, line_type) {
+  
+  col_pal = c(
+    forest = "#43a332",
+    shrub = "lightgreen",
+    mixed = "blue",
+    open_developed = "brown",
+    other = "gray"
+  )
+    
+
+  # total height
+  num_facet_rows <- length(unique(dat$unit_code))
+  total_page_ht <- 150 + 350 * num_facet_rows + 10 * num_facet_rows
+  
+  # subplot function
+  func_subplot_line <- function(plot_dat) {
+    subplot_line <- plot_dat %>%
+      group_by(get(line_by))
+      
+    if(line_type == "loess") {
+      subplot_line %<>% dplyr::mutate(fit = fitted(loess(formula = sum_indiv ~ yr)))
+  } else {
+    subplot_line %<>% dplyr::mutate(fit = fitted(lm(formula = sum_indiv ~ yr)))
+  }
+    
+  subplot_line %<>%
+    group_by(location_name) %>%
+    plot_ly(height = total_page_ht, legendgroup=~get(color_by)) %>%
+        add_markers(x = ~jitter(yr), 
+                y = ~jitter(sum_indiv),
+                color = ~get(color_by),
+                colors = col_pal,
+                marker = list(size = 7, opacity = 0.4),
+                text = ~hover_text, 
+                hoverinfo = "text",
+                showlegend = FALSE) %>%
+      add_lines(x= ~yr, y = ~fit, color = ~get(color_by), colors = col_pal, showlegend = FALSE) %>%
+    layout(
+      yaxis = list(
+        title = "Counts per survey"),
+      legend = list(orientation = "h",   # show entries horizontally
+                     xanchor = "center",  # use center of legend as anchor
+                     x = 0.5)
+    ) %>%
+  add_annotations(
+    text = ~unique(unit_code), # subplot title
+    x = 0.5,
+    y = 1.02,
+    yref = "paper",
+    xref = "paper",
+    xanchor = "middle",
+    yanchor = "bottom",
+    showarrow = FALSE,
+    font = list(size = 15)
+    )
+  }
+  
+  
+  dat %>%
+    dplyr::group_by(unit_code) %>%
+    plotly::do(p = func_subplot_line(.)) %>%
+    subplot(
+      nrows = NROW(.), 
+      shareX = TRUE,
+      shareY = FALSE,
+      titleX = FALSE,
+      titleY = TRUE,
+      margin = c(0.05, 0.05, 0.04, 0.04), # this is the subplot margin, L R T B
+      which_layout = 1) %>%
+    layout(
+      title = paste0("Counts per survey for ", unique(dat$species_codename), ", colored by ", color_by),
+      margin = list(l = 75, r = 20,
+                    b = 75, t = 75) # adds space to top and bottom of page
+    )
+ }
 
 FuncComboBoxPlotly <- function(dat = NULL, subplot_title = NULL) {
   
@@ -363,16 +535,95 @@ FuncComboBoxPlotly <- function(dat = NULL, subplot_title = NULL) {
   
 }
 
+FuncHabPointPlotly <- function() {
+  
+  point_hab_df <- dat_list$df_full_obs_cov %>%
+    dplyr::filter(unit_code == input$sel_one_park) %>%
+    dplyr::select(location_name) %>%
+    distinct() %>%
+    dplyr::left_join(dat_list$df_locs, by = "location_name") %>%
+    dplyr::select(unit_code, location_name, prop_understory_cover_50, understory_cover_sd_50, hab_type_100, perc_forest_100, perc_opendev_100, prop_understory_cover_100, understory_cover_sd_100, hab_type_200, perc_forest_200, perc_opendev_200, prop_understory_cover_200, understory_cover_sd_200)
+  
+   # total height
+  num_facet_rows <- 6
+  total_page_ht <- 150 + 350 * num_facet_rows + 25 * num_facet_rows
+  
+  # subplot function
+    func_subplot_habpoint <- function(plotdat, x_nam, y_nam) {
+      
+      plotdat %>%
+        dplyr::mutate(fit = fitted(loess(cov_y ~ cov_x))) %>%
+        plot_ly(height = total_page_ht) %>%
+        add_markers(x = ~jitter(cov_x), 
+                    y = ~jitter(cov_y),
+                    color = ~color_by,
+                    marker = list(size = 7),
+                    text = ~hover_text, 
+                    hoverinfo = "text",
+                    showlegend = FALSE) %>%
+        add_lines(x= ~cov_x, y = ~fit, color = ~color_by, showlegend = FALSE) %>%
+        layout(
+          yaxis = list(title = y_nam),
+          xaxis = list(title = x_nam)
+          )
+  
+    }
+    
+    # go through list of habitat plots
+    compare_df <- data.frame(
+    rbind(
+      c("prop_understory_cover_50", "understory_cover_sd_50", "hab_type_100"),
+      c("prop_understory_cover_50", "prop_understory_cover_100", "hab_type_100"),
+      c("perc_forest_100", "prop_understory_cover_100", "hab_type_100"),
+      c("perc_opendev_100", "prop_understory_cover_100", "hab_type_100"),
+      c("perc_forest_100", "perc_opendev_100", "hab_type_100"),
+      c("prop_understory_cover_100", "understory_cover_sd_100", "hab_type_100"),
+      c("perc_forest_200", "prop_understory_cover_200", "hab_type_200"),
+      c("perc_opendev_200", "prop_understory_cover_200", "hab_type_200"),
+      c("perc_forest_200", "perc_opendev_200", "hab_type_200"),
+      c("prop_understory_cover_200", "understory_cover_sd_200", "hab_type_200"))
+  )
+    names(compare_df) <- c("cov_x_name", "cov_y_name", "color_by_name")
+    
+    habplots_list <- list()
+    
+    
+  for(i in 1:nrow(compare_df)) {
+    plotdat <- point_hab_df %>%
+      dplyr::rename("cov_x" = compare_df$cov_x_name[i], "cov_y" = compare_df$cov_y_name[i], "color_by" = compare_df$color_by_name[i]) %>%
+      dplyr::mutate(
+        hover_text = paste0("<span style='font-size:12px; font-weight:bold;'>", location_name, "</span><br>", paste0("[X] ",compare_df$cov_x_name[i], ": ", cov_x), "<br>", paste0("[Y] ", compare_df$cov_y_name[i], ": ", cov_y),  "<br>", compare_df$color_by_name[i], ": ", color_by))
+    
+    habplots_list[[i]] <-
+    func_subplot_habpoint(plotdat, x_nam = compare_df$cov_x_name[i], y_nam = compare_df$cov_y_name[i])
+  }
+      
+    subplot(habplots_list,
+      nrows = num_facet_rows, 
+      shareX = FALSE,
+      shareY = FALSE,
+      titleX = TRUE,
+      titleY = TRUE,
+      margin = c(0.05, 0.05, 0.04, 0.04), # this is the subplot margin, L R T B
+      which_layout = 1) %>%
+    layout(
+      title = "Habitat Covariate Plots",
+      margin = list(l = 75, r = 20,
+                    b = 75, t = 75) # adds space to top and bottom of page
+  )
+}
+
 FuncCovPointPlotly <- function(dat) {
   # Get the data for continuous covariates in long format
   subdat <- dat %>%
-    dplyr::select(unit_code, yr, location_name, species_codename, event_date, sum_indiv, wk, hrs_since_rise, julian_prop, weather_temperature) %>%
-    tidyr::pivot_longer(cols = c("wk", "hrs_since_rise", "julian_prop", "weather_temperature"), names_to = "covariate_name", values_to = "covariate_value", values_drop_na = TRUE) %>%
+    dplyr::select(unit_code, yr, location_name, species_codename, event_date, sum_indiv, wk, hrs_since_rise, julian_prop, weather_temperature, hab_type_100, perc_forest_100, perc_forest_200, perc_opendev_100, perc_opendev_200, prop_understory_cover_50, prop_understory_cover_100, prop_understory_cover_200, understory_cover_sd_50, understory_cover_sd_100, understory_cover_sd_200) %>%
+    tidyr::pivot_longer(cols = c("wk", "hrs_since_rise", "julian_prop", "weather_temperature", "perc_forest_100", "perc_forest_200", "perc_opendev_100", "perc_opendev_200", "prop_understory_cover_50", "prop_understory_cover_100", "prop_understory_cover_200", "understory_cover_sd_50", "understory_cover_sd_100", "understory_cover_sd_200"), names_to = "covariate_name", values_to = "covariate_value", values_drop_na = TRUE) %>%
     dplyr::mutate(
-      hover_text = paste0("<span style='font-size:12px; font-weight:bold;'>", unit_code, " ", yr, "<br>", species_codename, "</span><br>", paste0(toupper(covariate_name), ": ", covariate_value), "<br># of Individuals: ", sum_indiv, "<br>Location: ", location_name, "<br>Survey Date: ", event_date))
+      hover_text = paste0("<span style='font-size:12px; font-weight:bold;'>", unit_code, " ", yr, "<br>", species_codename, "</span><br>", paste0(toupper(covariate_name), ": ", covariate_value), "<br># of Individuals: ", sum_indiv, "<br>Location: ", location_name, "<br>Survey Date: ", event_date, "<br>Habitat (100m): ", hab_type_100),
+      color_by = hab_type_100) 
   
   # total height
-  num_facet_rows <- 3
+  num_facet_rows <- 7
   total_page_ht <- 150 + 350 * num_facet_rows + 25 * num_facet_rows
   
   # subplot function
@@ -385,16 +636,15 @@ FuncCovPointPlotly <- function(dat) {
     plot_ly(height = total_page_ht) %>%
     add_markers(x = ~jitter(covariate_value), 
                 y = ~jitter(sum_indiv),
-                color = ~unit_code,
+                color = ~color_by,
                 marker = list(size = 7, opacity = 0.6),
                 text = ~hover_text, 
                 hoverinfo = "text",
                 showlegend = FALSE) %>%
-      add_lines(x= ~covariate_value, y = ~fit, color = ~unit_code, showlegend = TRUE) %>%
+      add_lines(x= ~covariate_value, y = ~fit, color = ~unit_code, showlegend = FALSE) %>%
     layout(
       yaxis = list(
-        title = "Counts per survey"
-      )
+        title = "Counts per survey")
     ) %>%
   add_annotations(
     text = switch(
@@ -402,7 +652,18 @@ FuncCovPointPlotly <- function(dat) {
       wk = "Week of Year",
       hrs_since_rise = "Hours Since Sunrise", 
       julian_prop = "Julian day (as proportion of year)",
-      weather_temperature = "Air Temperature (C)"), # subplot title
+      weather_temperature = "Air Temperature (C)",
+      perc_forest_100 = "% Forest (100m)",
+      perc_forest_200 = "% Forest (200m)", 
+      perc_opendev_100 = "% Developed (100m)", 
+      perc_opendev_200 = "% Developed (200m)", 
+      prop_understory_cover_50 = "% Understory Cover (50m)", 
+      prop_understory_cover_100 = "% Understory Cover (100m)", 
+      prop_understory_cover_200 = "% Understory Cover (200m)", 
+      understory_cover_sd_50 = "Understory Variability (50m)", 
+      understory_cover_sd_100 = "Understory Variability (100m)",
+      understory_cover_sd_200 = "Understory Variability (200m)"
+      ), # subplot title
     x = 0.5,
     y = 1.02,
     yref = "paper",
@@ -413,24 +674,24 @@ FuncCovPointPlotly <- function(dat) {
     font = list(size = 15)
     )
   }
-      
+  
   subdat %>%
     dplyr::group_by(covariate_name) %>%
-    plotly::do(p = func_subplot_covpoint(.)) %>%
-    subplot(
-      nrows = num_facet_rows, 
-      shareX = FALSE,
-      shareY = TRUE,
-      titleX = FALSE,
-      titleY = TRUE,
-      margin = c(0.05, 0.05, 0.04, 0.04), # this is the subplot margin, L R T B
-      which_layout = 1) %>%
+    plotly::do(p = func_subplot_covpoint(.)) %>% 
+    subplot(.,
+    nrows = num_facet_rows, 
+    shareX = FALSE,
+    shareY = TRUE,
+    titleX = FALSE,
+    titleY = TRUE,
+    margin = c(0.05, 0.05, 0.04, 0.04), # this is the subplot margin, L R T B
+    which_layout = 1) %>%
     layout(
       title = paste0("Counts per survey for ", unique(dat$species_codename), ", grouped by park unit and (binned) continuous covariate level"),
       margin = list(l = 75, r = 20,
                     b = 75, t = 75) # adds space to top and bottom of page
     ) %>%
-    hide_legend(.)
+  hide_legend(.)
 }
 
 FuncHeatCountPlotly <- function(dat) {
@@ -623,7 +884,7 @@ FuncDistComboPlotly <- function(dat = NULL, cov_colname = NULL, max_dist = NULL)
   cov_label <- switch(cov_colname,
                       "location_name" = "Location",
                       "no_split" = "No Grouping",
-                      "hab_type_200" = "Habitat",
+                      "hab_type_100" = "Habitat",
                       "weather_wind" = "Wind", 
                       "weather_noise" = "Noise",
                       "yr_visit" = "Survey Event",
@@ -680,7 +941,7 @@ FuncTimeComboPlotly <- function(
   cov_label <- switch(cov_colname,
                       "location_name" = "Location",
                         "no_split" = "No Grouping",
-                        "hab_type_200" = "Habitat",
+                        "hab_type_100" = "Habitat",
                         "weather_wind" = "Wind", 
                         "weather_noise" = "Noise",
                         "dist_time_split" = "Distance Bin"
@@ -777,9 +1038,6 @@ observeEvent(eventExpr = input$button_UpdateSpeciesPlots, {
  
 # Distance and time function data
 observeEvent(eventExpr = input$button_UpdateDistPlots, {
-      saveRDS(isolate(reactiveValuesToList(input)), "temp_input.RDS")
-saveRDS(dat_list, "temp_dat_list.RDS")
-  saveRDS(isolate(reactiveValuesToList(rv)), "temp_rv.RDS")
   
   shiny::req(!is.null(dat_list$df_finaldat), !is.null(dat_list$df_locs), !is.null(dat_list$df_survey_conditions), !is.null(dat_list$events), !is.null(input$sel_dist_species), !is.null(input$sel_dist_parks), !is.null(input$sel_dist_cov), !is.null(input$sel_max_detect_dist), !is.null(rv$detect_by_loc), !is.null(input$sel_combine_bins))
   
@@ -806,12 +1064,9 @@ saveRDS(dat_list, "temp_dat_list.RDS")
   }
   
   rv$species_dist_dat <- temp_species_dist_dat %>%
-    dplyr::left_join(dat_list$df_locs[c("location_name", "dom_veg_200", "dom_veg_prop_200", "hab_type_200")], by = "location_name") %>%
+    dplyr::left_join(dat_list$df_locs[c("location_name", "dom_hab_100", "dom_hab_prop_100", "hab_type_100")], by = "location_name") %>%
     dplyr::left_join(dat_list$df_survey_conditions[c("location_name", "event_date", "weather_wind", "weather_noise")], by = c("location_name", "event_date")) %>%
     dplyr::left_join(dat_list$events, by = c("unit_code", "location_name", "event_date"))
-  
-
-
 
   
   # This is data for the distance covariate plots
@@ -850,8 +1105,8 @@ observeEvent(eventExpr = input$button_UpdateDetectFunctionPlots, {
   buffer_hab_list <- lapply(maps_list[grepl("_100m", names(maps_list))], FUN = function(x) {
     y<-x %>%
       as.data.frame() %>%
-      dplyr::select(unit_code, location_name, buffer_m, veg_string) %>%
-      tidyr::pivot_wider(names_from = buffer_m, values_from = veg_string, names_prefix = "buffer_") %>%
+      dplyr::select(unit_code, location_name, buffer_m, hab_string) %>%
+      tidyr::pivot_wider(names_from = buffer_m, values_from = hab_string, names_prefix = "buffer_") %>%
       dplyr::select(unit_code, location_name, buffer_50, buffer_100, buffer_200)
   })
   buffer_hab_df <- do.call(rbind.data.frame, buffer_hab_list)
@@ -870,18 +1125,35 @@ Sampling Summary
 
 Column {data-width=50}
 -------------------------------------
+####
+```{r}
+
+radioButtons("sel_data",
+               label = strong(h5("Select data to summarize")),
+               choiceNames = c("All Data", "Trend Analysis Data (subset of all data)"),
+             choiceValues = c("all_data", "analysis_data"),
+               inline = TRUE,
+               selected = "analysis_data")
+
+actionButton("button_ImportData", "Import Selected Data", width = "350px", style="border-color:black; background-color: lightgreen; border:0px; margin:0px")
+
+br()
+
+br()
+```
+
 ### Distribution of point location habitat type across park units
 ```{r}
 output$table_physiog <- DT::renderDT({
   shiny::req(!is.null(dat_list$df_full_obs_cov))
   tab_dat <- dat_list$df_full_obs_cov 
-  tab_dat$dom_veg_200[tab_dat$dom_veg_200 == "Woodland and Forest"] <- "Woodlands and Forest"
+
   tab_dat %<>%
-    dplyr::group_by(unit_code, hab_type_200, dom_veg_200) %>%
+    dplyr::group_by(unit_code, hab_type_100, dom_hab_100) %>%
     dplyr::summarize(num_locs = n_distinct(location_name)) %>%
     tidyr::pivot_wider(names_from = "unit_code", values_from = "num_locs") %>%
-    dplyr::rename(habitat = hab_type_200) %>%
-    dplyr::arrange(habitat, dom_veg_200)
+    dplyr::rename(habitat = hab_type_100) %>%
+    dplyr::arrange(habitat, dom_hab_100)
 
   DT::datatable(
     tab_dat,
@@ -979,6 +1251,10 @@ Species Summary
 
 <font size="3">**Summary of bird detections during GULN point count surveys**</font>
 
+<span style="font-size:18px; color:red;">
+    SPECIES SUMMARY TABLE IS SLOW TO RENDER - PLEASE BE PATIENT 
+</span>
+
 * <font size="2"> This table summarizes detections for all bird species and all park units in GULN bird point count surveys. Cell values are color-coded so more detections = darker green.</font>
 
 * <font size="2"> Records are sorted descending by `AVG OF 6 PARKS'. Sort columns by clicking on the column name. Use the search box under each column name to filter data.  </font>
@@ -988,6 +1264,9 @@ Species Summary
 * <font size="2"> Hover over (underlined) column names to see column definitions. Click on a row triangle (first col) to show summary by park unit, for that species. </font>
 
 ```{r species_reactable}
+
+output$table_species <- renderReactable({
+shiny::req(!is.null(dat_list$df_species), !is.null(dat_list$df_detail_species))
 reactable::reactable(dat_list$df_species,
                      defaultColDef = colDef(
                                      align = "center"
@@ -1072,6 +1351,9 @@ reactable::reactable(dat_list$df_species,
                        )
                        }
                      )
+})
+
+reactableOutput("table_species")
 
 ```
 
@@ -1166,6 +1448,19 @@ renderLeaflet({
   })
 ```
 
+### Habitat Plots
+
+```{r}
+output$out_HabPointPlot <- renderPlotly({
+  shiny::req(!is.null(input$sel_one_park), !is.null(dat_list$df_full_obs_cov))
+  
+  FuncHabPointPlotly()
+})
+
+tags$style("#out_HabPointPlot{height:100vh;overflow-x:scroll;overflow-y:scroll}")
+plotlyOutput('out_HabPointPlot', height="100%", width = "100%")
+```
+
 Drill-Down by Species
 =========================================
 
@@ -1256,6 +1551,67 @@ tags$style("#out_BoxPlot{height:100vh;overflow-x:scroll;overflow-y:scroll}")
 plotlyOutput('out_BoxPlot', height="100%", width = "100%")
 ```
 
+### Line Graphs of Counts
+
+
+<font size="3">**Lines are NOT model-estimated trends--they are only for visualizing patterns in the RAW DATA and may differ from results of proper statistical model-fitting!!**</font>
+
+* <font size="2"> Smoothed or best-fit straight lines are fit to the RAW DATA, WITHOUT CORRECTING FOR DETECTION PROBABILITY, COVARIATE EFFECTS, etc. </font>
+
+* <font size="2"> Points show the raw data, JITTERED for easy viewing. </font>
+
+####
+```{r}
+
+splitLayout(
+  cellWidths = c("20%", "20%", "20%"),
+
+radioButtons("sel_lines_by",
+             label = h6("Separate line for each: "),
+             choiceNames = c("Point count location", "Habitat type (100m)", "Habitat type (200m)"),
+             choiceValues = c("location_name", "hab_type_100", "hab_type_200"),
+             selected = "location_name"
+),
+
+radioButtons("sel_lines_type",
+             label = h6("Show lines as: "),
+             choiceNames = c("Best linear fit", "Loess smooth"),
+             choiceValues = c("lm", "loess"),
+             selected = "lm"
+),
+
+renderUI({
+  shiny::req(!is.null(input$sel_lines_by))
+  
+  radioButtons("sel_color_lines_by",
+             label = h6("COLOR lines based on: "),
+             choiceNames = c("Habitat type (100m)", "Habitat type (200m)"),
+             choiceValues = c("hab_type_100", "hab_type_200"),
+             selected = case_when(
+               input$sel_lines_by == "hab_type_100" ~ "hab_type_100",
+               input$sel_lines_by == "hab_type_200" ~ "hab_type_200",
+               input$sel_lines_by == "location_name" ~ switch(is.null(input$sel_color_lines_by)+1, input$sel_color_lines_by, "hab_type_100"))
+             )
+  })
+)
+```
+  
+####  
+```{r}
+output$out_LineGraph <- renderPlotly({
+  shiny::req(!is.null(rv$one_species_dat), !is.null(input$sel_color_lines_by), !is.null(input$sel_lines_by), !is.null(input$sel_lines_type))
+  
+  saveRDS(isolate(reactiveValuesToList(input)), "temp_input.RDS")
+saveRDS(isolate(reactiveValuesToList(dat_list)), "temp_dat_list.RDS")
+saveRDS(isolate(reactiveValuesToList(rv)), "temp_rv.RDS")
+
+  FuncYrLinePlotly(dat = rv$one_species_dat, color_by = input$sel_color_lines_by, line_by = input$sel_lines_by, line_type = input$sel_lines_type)
+})
+
+tags$style("#out_LineGraph{height:100vh;overflow-x:scroll;overflow-y:scroll}")
+plotlyOutput('out_LineGraph', height="100%", width = "100%")
+```
+
 ### Categorical Covariates
 
 ```{r}
@@ -1263,13 +1619,13 @@ plotlyOutput('out_BoxPlot', height="100%", width = "100%")
 output$out_ComboBoxPlot <- renderPlotly({
   shiny::req(!is.null(rv$one_species_dat))
   
-  cov_vec <- c("hab_type_200", "weather_sky", "weather_wind", "weather_noise")
+  cov_vec <- c("hab_type_100", "weather_sky", "weather_wind", "weather_noise")
   
   cat("line951")
   box_plotly_list <- lapply(cov_vec, FUN = function(x) {
     cov_name = switch(
         x,
-        "hab_type_200" = "Habitat", 
+        "hab_type_100" = "Habitat", 
         "weather_sky" = "Sky (cloudiness)", 
         "weather_wind" = "Wind", 
         "weather_noise" = "Ambient Noise"
@@ -1286,7 +1642,7 @@ output$out_ComboBoxPlot <- renderPlotly({
   subplot(
     box_plotly_list,
       nrows = 2, 
-      shareX = FALSE, 
+      shareX = TRUE, 
       shareY = FALSE,
       margin = c(0.1, 0.1, 0.05, 0.05), # this is the subplot margin, L R T B
       which_layout = 1) %>%
@@ -1305,7 +1661,7 @@ plotlyOutput('out_ComboBoxPlot', height="100%", width = "100%")
 ```{r}
 output$out_CovPointPlot <- renderPlotly({
   shiny::req(!is.null(rv$one_species_dat))
-
+  
   FuncCovPointPlotly(dat = rv$one_species_dat)
 })
 
@@ -1313,11 +1669,14 @@ tags$style("#out_CovPointPlot{height:100vh;overflow-x:scroll;overflow-y:scroll}"
 plotlyOutput('out_CovPointPlot', height="100%", width = "100%")
 ```
 
+
 ### Species Counts Map
 
 <font size="3">**Map of survey locations and average detections/surveys**</font>
 
-* <font size="2"> Each blue point is scaled to the detections/survey, averaged over all surveys conducted at that survey location. </font>
+* <font size="2"> Each circle is scaled to the detections/survey, averaged over all surveys conducted at that survey location. </font>
+
+* <font size="2"> Color of circle indicates approximate raw trend (no covariates)--green means increasing, red means declining. </font>
 
 * <font size="2"> The size of the transparent yellow circles show approximately a 100-m and 200-m radius extending from each survey location (reflecting the fact that the largest distance bin is >= 100m). </font>
 
@@ -1350,6 +1709,18 @@ actionButton("button_UpdateSpeciesMap", "Update Map", width = "350px", style="bo
 observeEvent(eventExpr = input$button_UpdateSpeciesMap, {
   shiny::req(!is.null(maps_list), !is.null(rv$detect_by_loc), !is.null(rv$one_species_dat), !is.null(input$sel_species_map_park), !is.null(input$sel_species_point_scale))
   
+#   
+#   p <- ggplot(dat, aes(x = yr, y = sum_indiv, color = hab_type_100, group_by = location_name)) +
+#          stat_smooth(method = "lm", se = FALSE)
+# plotly::ggplotly(p)
+# 
+# raw_trend <- lm(formula = sum_indiv ~ yr_c*location_name, data = mod_dat)
+# trend_coef <- broom::tidy(raw_trend)
+# trend_df <- trend_coef[grep("yr_c:location_name", trend_coef$term), ]
+# trend_df$term <- gsub(pattern = "yr_c:location_name", replacement = "", trend_df$term) # then color by estimate
+
+
+
 cat("line1213")
     sel_species_point_scale <- input$sel_species_point_scale
     sel_species_map_park <- input$sel_species_map_park
@@ -1371,7 +1742,7 @@ cat("line1224")
     addMapPane("point_size_counts", zIndex = 410) %>%
     addProviderTiles("Esri.WorldImagery", options = providerTileOptions(noWrap = TRUE), group="Satellite") %>%
     addProviderTiles("OpenStreetMap", group = "OpenStreetMap") %>%
-    leaflet::addCircleMarkers(data = sp_map_dat, lng = ~longitude, lat = ~latitude, fill = TRUE, fillOpacity = 0.6, fillColor = "blue", weight = 1, color = "black", radius = ~point_size*sel_species_point_scale, label = ~point_text, popup = ~hover_text, group = "Avg Detections/Survey", options = pathOptions(pane = "point_size_counts")) %>%
+    leaflet::addCircleMarkers(data = sp_map_dat, lng = ~longitude, lat = ~latitude, fill = TRUE, fillOpacity = 0.6, fillColor = "blue", weight = 1, color = "black", radius = ~point_size*sel_species_point_scale, label = ~point_text, labelOptions = labelOptions(noHide = TRUE, textOnly = TRUE), popup = ~hover_text, group = "Avg Detections/Survey", options = pathOptions(pane = "point_size_counts")) %>%
     addControl(paste0(unique(sp_map_dat$species_codename), " at ", sel_species_map_park), position = "topleft", className="map-title") %>% 
   addLayersControl(
     baseGroups = c("OpenStreetMap", "Satellite"),
@@ -1398,7 +1769,7 @@ renderLeaflet({
 ```{r}
 output$table_species_survey <- renderReactable({
   shiny::req(!is.null(rv$one_species_dat))
-  reactable::reactable(rv$one_species_dat %>% dplyr::select(species_codename, unit_code, location_name, yr, yr_visit, wk, event_date, hrs_since_rise, julian_prop, sum_indiv, hab_type_200, dom_veg_200, dom_veg_prop_200, weather_sky, weather_wind, weather_temperature, weather_noise),
+  reactable::reactable(rv$one_species_dat %>% dplyr::select(species_codename, unit_code, location_name, yr, yr_visit, wk, event_date, hrs_since_rise, julian_prop, sum_indiv, perc_forest_100, perc_opendev_100, hab_type_100, dom_hab_100, dom_hab_prop_100, prop_understory_cover_50, prop_understory_cover_100, prop_understory_cover_200, understory_cover_sd_50, understory_cover_sd_100, understory_cover_sd_200, weather_sky, weather_wind, weather_temperature, weather_noise),
                      defaultColDef = colDef(
                        align = "center"
                      ),
@@ -1453,12 +1824,12 @@ renderUI({
 radioButtons("sel_dist_cov",
                        label = strong("Show distance & time plots by covariate level: "),
                        choices = c("(none)" = "no_split",
-                                   "Habitat" = "hab_type_200",
+                                   "Habitat" = "hab_type_100",
                                    "Wind" = "weather_wind",
                                    "Ambient Noise" = "weather_noise",
                                    "Survey Event" = "yr_visit",
                                    "Distance/Time Interval" = "dist_time_split"),
-                       selected = "hab_type_200")
+                       selected = "hab_type_100")
 
   checkboxInput("sel_combine_bins",
                         label = strong("Combine first and second distance bins (first bin becomes 0 - 50m)"),
@@ -1682,9 +2053,9 @@ hover_add <- maps_list[[paste0(sel_dist_map_park, "_100m")]] %>%
     addMapPane("selected_points", zIndex = 420) %>%
       addProviderTiles("Esri.WorldImagery", options = providerTileOptions(noWrap = TRUE), group="Satellite") %>%
   addProviderTiles("OpenStreetMap", group = "OpenStreetMap") %>%
-    leaflet::addCircleMarkers(data = linked_map_dat, lng = ~longitude, lat = ~latitude, fill = TRUE, fillOpacity = 0.6, fillColor = pal_map(linked_map_dat$dist_detect_function), weight = 1, color = "black", radius = ~point_size*sel_dist_point_scale, label = ~point_text, popup = ~hover_text, group = "Avg Detections/Survey", options = pathOptions(pane = "point_size_counts")) %>%
+    leaflet::addCircleMarkers(data = linked_map_dat, lng = ~longitude, lat = ~latitude, fill = TRUE, fillOpacity = 0.6, fillColor = pal_map(linked_map_dat$dist_detect_function), weight = 1, color = "black", radius = ~point_size*sel_dist_point_scale, label = ~point_text, labelOptions = labelOptions(noHide = TRUE, textOnly = TRUE), popup = ~hover_text, group = "Avg Detections/Survey", options = pathOptions(pane = "point_size_counts")) %>%
     # leaflet::addCircleMarkers(data = linked_map_dat %>% highlight_key(~location_name, group = "Location"), lng = ~longitude, lat = ~latitude, fill = TRUE, fillOpacity = 0.6, fillColor = "blue", weight = 1, color = "black", radius = ~point_size*sel_dist_point_scale, label = ~point_text, popup = ~hover_text, options = pathOptions(pane = "selected_points")) %>% # the linked data!
-    leaflet::addCircleMarkers(data = linked_map_dat %>% highlight_key(~location_name, group = "Location"), lng = ~longitude, lat = ~latitude, fillOpacity = 0, stroke = TRUE, weight = 4, color = "blue", radius = ~point_size*sel_dist_point_scale, label = ~point_text, popup = ~hover_text, options = pathOptions(pane = "selected_points")) %>% # the linked data!
+    leaflet::addCircleMarkers(data = linked_map_dat %>% highlight_key(~location_name, group = "Location"), lng = ~longitude, lat = ~latitude, fillOpacity = 0, stroke = TRUE, weight = 4, color = "blue", radius = ~point_size*sel_dist_point_scale, label = ~point_text, labelOptions = labelOptions(noHide = TRUE, textOnly = TRUE), popup = ~hover_text, options = pathOptions(pane = "selected_points")) %>% # the linked data!
     addControl(paste0(unique(linked_map_dat$species_codename), " at ", sel_dist_map_park), position = "topleft", className="map-title") %>%
     addLayersControl(
     baseGroups = c("OpenStreetMap", "Satellite"),
@@ -1722,7 +2093,7 @@ renderLeaflet({
 ```{r}
 DT::renderDataTable({
   shiny::req(!is.null(rv$linked_dist_obs_dat))
-  table_dat <- rv$linked_dist_obs_dat %>% dplyr::select(location_name, yr, event_date, event_comments, observer, time_bin, distance_bin_id, distance_bin, count, hab_type_200, weather_wind, weather_noise, point_notes)
+  table_dat <- rv$linked_dist_obs_dat %>% dplyr::select(location_name, yr, event_date, event_comments, observer, time_bin, distance_bin_id, distance_bin, count, hab_type_100, weather_wind, weather_noise, point_notes)
   DT::datatable(
     table_dat %>% highlight_key(~location_name, group = "Location"),
     caption = htmltools::tags$caption(
@@ -1900,4 +2271,36 @@ output$table_dist_props <- DT::renderDT({
 
 DT::DTOutput("table_dist_props")
 tags$style("#table_dist_props{height:100vh;overflow-x:scroll;overflow-y:scroll}")
+```
+
+Data Tables
+=========================================
+
+Tabs {.tabset .tabset-fade}
+-------------------------------------
+
+### Final Data
+```{r datatable_finaldat}
+DT::renderDT({
+  
+  shiny::req(!is.null(dat_list$df_finaldat))
+  
+  DT::datatable(
+    dat_list$df_finaldat,
+    rownames = FALSE,
+    filter = "top",
+    selection = "none",
+    class="compact stripe",
+    extensions=c('Buttons','ColReorder'),
+    options = list(
+          dom = 'Blrtp',
+          buttons = list('csv', 'excel'),
+          lengthMenu = list(c(20,30,40,-1),
+                          c(20,30,40,"All")),
+          colReorder=TRUE,
+        columnDefs = list(list(className = 'dt_center', targets = "_all")),
+          autoWidth = FALSE
+        )
+  )
+  })
 ```

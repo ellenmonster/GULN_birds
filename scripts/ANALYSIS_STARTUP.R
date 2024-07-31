@@ -16,6 +16,34 @@ df_full_obs <- readRDS(here::here("Data_out", "df_full_obs.RDS"))# For each surv
 df_finaldat <- readRDS(here::here("Data_out", "df_finaldat.RDS")) # This is the actual count data, with time bin, distance bin, etc. for each obs. DOES NOT INCLUDE THE ZERO-COUNTS.
 
 ### Functions ----
+FuncSubsetAnalysisData <- function(dat) {
+  # Remove data we will not use
+  if(park == "VICK") {
+    
+    ## For VICK, only using Daniel;s data and only data starting 2012 so can avoid messy changes of researchers and also the very odd timing of 5 surveys (the yr_visits had long timespans that overlapped each other) in 2010
+    dat %<>% 
+      dplyr::filter(researcher == "Twedt, Daniel" & yr >= 2012 & yr_visit != "2023_3")
+  }
+  
+  if(park == "BITH") {
+    ## REMOVE first three years of data b/c each of these first three years had a different researcher and strong researcher impact
+    dat %<>% dplyr::filter(yr >= 2017)
+    dat %<>% dplyr::filter(yr_visit != "2018_2")
+  }
+  
+  if(park == "GUIS") {
+    dat %<>%
+      dplyr::filter(!researcher %in% c("Walker,  Jake", "Sculley,  Mike"))
+  }
+  
+  if(park == "PAAL") { # NOTE: I only started doing this for models I ran in May 2024
+    dat %<>%
+      dplyr::filter(researcher == "Pruitt,  Kenneth" & yr >= 2013)
+  }
+  
+  return(dat)
+}
+
 FuncFormatUnmarkedDist <- function(park, spec, single_visit) { # formerly called 'FuncFormatFinalDat'
   # Format the df_finaldat for use in DISTANCE SAMPLING.
   # Add a column to indicate a researcher's first year of survey
@@ -83,7 +111,7 @@ FuncFormatUnmarkedDist <- function(park, spec, single_visit) { # formerly called
   survey_dat_keep <- df_survey_conditions %>%
     dplyr::select(location_name, event_date, researcher, julian_prop, hrs_since_rise, weather_wind)
   loc_dat_keep <- df_locs %>%
-    dplyr::select(location_name, hab_type_100, hab_type_200, prop_understory_cover_50, prop_understory_cover_100, prop_understory_cover_200, understory_cover_sd_50, understory_cover_sd_100, understory_cover_sd_200)
+    dplyr::select(location_name, perc_forest_100, perc_forest_200, perc_opendev_100, perc_opendev_200, hab_type_100, hab_type_200, prop_understory_cover_50, prop_understory_cover_100, prop_understory_cover_200, understory_cover_sd_50, understory_cover_sd_100, understory_cover_sd_200)
   
   # Add to the count data
   dat_Nmix <- dist_df %>% 
@@ -91,28 +119,29 @@ FuncFormatUnmarkedDist <- function(park, spec, single_visit) { # formerly called
     dplyr::left_join(survey_dat_keep, by = c("location_name", "event_date"))
   
   # Remove data we will not use
-  if(park == "VICK") {
-    
-    ## For VICK, only using Daniel;s data and only data starting 2012 so can avoid messy changes of researchers and also the very odd timing of 5 surveys (the yr_visits had long timespans that overlapped each other) in 2010
-    dat_Nmix %<>% 
-      dplyr::filter(researcher == "Twedt, Daniel" & yr >= 2012)
-  }
-  
-  if(park == "BITH") {
-    ## REMOVE first three years of data b/c each of these first three years had a different researcher and strong researcher impact
-    dat_Nmix %<>% filter(yr >= 2017)
-    dat_Nmix %<>% dplyr::filter(yr_visit != "2018_2")
-  }
-  
-  if(park == "GUIS") {
-    dat_Nmix %<>%
-      dplyr::filter(!researcher %in% c("Walker,  Jake", "Sculley,  Mike"))
-  }
-  
-  if(park == "PAAL") { # NOTE: I only started doing this for models I ran in May 2024
-    obs_dat %<>%
-      dplyr::filter(researcher == "Pruitt,  Kenneth" & yr >= 2013)
-  }
+  dat_Nmix <- FuncSubsetAnalysisData(dat_Nmix)
+  # if(park == "VICK") {
+  #   
+  #   ## For VICK, only using Daniel;s data and only data starting 2012 so can avoid messy changes of researchers and also the very odd timing of 5 surveys (the yr_visits had long timespans that overlapped each other) in 2010
+  #   dat_Nmix %<>% 
+  #     dplyr::filter(researcher == "Twedt, Daniel" & yr >= 2012 & yr_visit != "2023_3")
+  # }
+  # 
+  # if(park == "BITH") {
+  #   ## REMOVE first three years of data b/c each of these first three years had a different researcher and strong researcher impact
+  #   dat_Nmix %<>% filter(yr >= 2017)
+  #   dat_Nmix %<>% dplyr::filter(yr_visit != "2018_2")
+  # }
+  # 
+  # if(park == "GUIS") {
+  #   dat_Nmix %<>%
+  #     dplyr::filter(!researcher %in% c("Walker,  Jake", "Sculley,  Mike"))
+  # }
+  # 
+  # if(park == "PAAL") { # NOTE: I only started doing this for models I ran in May 2024
+  #   obs_dat %<>%
+  #     dplyr::filter(researcher == "Pruitt,  Kenneth" & yr >= 2013)
+  # }
   
   # Combine covariates and calculate scaled covariates
   med_yr <- median(range(dat_Nmix$yr, na.rm = TRUE), na.rm = TRUE)
@@ -206,36 +235,37 @@ FuncFormatFullObs <- function(park, spec, limit_100m = TRUE) {
   survey_dat_keep <- df_survey_conditions %>%
     dplyr::select(location_name, event_date, researcher, julian_prop, hrs_since_rise, weather_wind)
   loc_dat_keep <- df_locs %>%
-    dplyr::select(location_name, hab_type_100, hab_type_200, prop_understory_cover_50, prop_understory_cover_100, prop_understory_cover_200, understory_cover_sd_50, understory_cover_sd_100, understory_cover_sd_200)
+    dplyr::select(location_name, perc_forest_100, perc_forest_200, perc_opendev_100, perc_opendev_200, hab_type_100, hab_type_200, prop_understory_cover_50, prop_understory_cover_100, prop_understory_cover_200, understory_cover_sd_50, understory_cover_sd_100, understory_cover_sd_200)
   
   # Add and combine covariates as needed
   obs_dat %<>%
     dplyr::left_join(loc_dat_keep, by = c("location_name")) %>%
     dplyr::left_join(survey_dat_keep, by = c("location_name", "event_date"))
   
-  if(park == "VICK") {
-    
-    # For VICK, only using Daniel;s data and only data starting 2012 so can avoid messy changes of researchers and also the very odd timing of 5 surveys (the yr_visits had long timespans that overlapped each other) in 2010
-    obs_dat %<>% 
-      dplyr::filter(researcher == "Twedt, Daniel" & yr >= 2012)
-  }
-  
-  if(park == "BITH") {
-    ## REMOVE first three years of data b/c each of these first three years had a different researcher and strong researcher impact
-    obs_dat %<>% dplyr::filter(yr >= 2017)
-    obs_dat %<>% dplyr::filter(yr_visit != "2018_2")
-    
-  }
-  
-  if(park == "GUIS") {
-    obs_dat %<>%
-      dplyr::filter(!researcher %in% c("Walker,  Jake", "Sculley,  Mike"))
-  }
-  
-  if(park == "PAAL") {
-    obs_dat %<>%
-      dplyr::filter(researcher == "Pruitt,  Kenneth" & yr >= 2013)
-  }
+  obs_dat <- FuncSubsetAnalysisData(obs_dat)
+  # if(park == "VICK") {
+  #   
+  #   # For VICK, only using Daniel;s data and only data starting 2012 so can avoid messy changes of researchers and also the very odd timing of 5 surveys (the yr_visits had long timespans that overlapped each other) in 2010
+  #   obs_dat %<>% 
+  #     dplyr::filter(researcher == "Twedt, Daniel" & yr >= 2012 & yr_visit != "2023_3")
+  # }
+  # 
+  # if(park == "BITH") {
+  #   ## REMOVE first three years of data b/c each of these first three years had a different researcher and strong researcher impact
+  #   obs_dat %<>% dplyr::filter(yr >= 2017)
+  #   obs_dat %<>% dplyr::filter(yr_visit != "2018_2")
+  #   
+  # }
+  # 
+  # if(park == "GUIS") {
+  #   obs_dat %<>%
+  #     dplyr::filter(!researcher %in% c("Walker,  Jake", "Sculley,  Mike"))
+  # }
+  # 
+  # if(park == "PAAL") {
+  #   obs_dat %<>%
+  #     dplyr::filter(researcher == "Pruitt,  Kenneth" & yr >= 2013)
+  # }
   
   mod_dat <- obs_dat %>%
     dplyr::mutate(yr_c = yr - median(range(obs_dat$yr, na.rm = TRUE), na.rm = TRUE), # centered on median
@@ -528,43 +558,43 @@ FuncMatrix_Nmix <- function(dat, num_surv, cov_vec, response_mat = FALSE, stack 
   return(out)
 }
 
-FuncSubsetDat_XXX <- function(dat, spec, unit, max_bin_bound, stats_meth = "dist_time") {
-  # Use this for distance and removal models, where you require presence of species at the site to estimate detection and removal functions. Do not use for GLMMs, where you need the full zero-data incorporated (including sites where the species was never detected)
-  temp <- dat %>% 
-    dplyr::filter(unit_code %in% unit) %>% 
-    dplyr::left_join(df_locs[c("location_name", "hab_type_200")], by = "location_name") %>%
-    dplyr::left_join(df_survey_conditions[c("location_name", "event_date", "weather_wind", "weather_temperature_cs", "weather_sky_revised_num", "weather_noise_num", "weather_noise", "julian_prop")], by = c("location_name", "event_date")) %>%
-    FuncComb(., meth = stats_meth)
-  
-  # Template of sampling events at all sites where the species was detected at least once (sites where species were never detected can probably be considered structural zero's and should be included in the GLMM part of model) with their event covariate info. Fill in 0-count surveys.
-  surveys <- temp %>%
-    dplyr::select(-species_code, -distance_bin_id, -distance_bin, -time_bin_id, -count) %>%
-    distinct() 
-  
-  # These are locations at which species was detected at least once
-  bird_at_loc <- temp %>%
-    dplyr::filter(species_code == spec) %>%
-    dplyr::select(location_name) %>%
-    distinct()
-  
-  # Template should only include those locations where species was detected at least once, and should include all survey events at those locations (incl. events species not detected)
-  
-  template <- bird_at_loc %>%
-    dplyr::left_join(surveys, by = "location_name")
-  
-  dat <- temp %>%
-    dplyr::filter(species_code == spec) %>%
-    dplyr::select(-species_code) %>%
-    dplyr::right_join(template)
-  dat$count[is.na(dat$count)] <- 0
-  
-  if(!is.na(max_bin_bound) & max_bin_bound == 100) {
-    dat %<>% 
-      dplyr::filter(distance_bin_id != "3") %>%
-      droplevels(.)
-  }
-  return(dat)
-}
+# FuncSubsetDat_XXX <- function(dat, spec, unit, max_bin_bound, stats_meth = "dist_time") {
+#   # Use this for distance and removal models, where you require presence of species at the site to estimate detection and removal functions. Do not use for GLMMs, where you need the full zero-data incorporated (including sites where the species was never detected)
+#   temp <- dat %>% 
+#     dplyr::filter(unit_code %in% unit) %>% 
+#     dplyr::left_join(df_locs[c("location_name", "hab_type_200")], by = "location_name") %>%
+#     dplyr::left_join(df_survey_conditions[c("location_name", "event_date", "weather_wind", "weather_temperature_cs", "weather_sky_revised_num", "weather_noise_num", "weather_noise", "julian_prop")], by = c("location_name", "event_date")) %>%
+#     FuncComb(., meth = stats_meth)
+#   
+#   # Template of sampling events at all sites where the species was detected at least once (sites where species were never detected can probably be considered structural zero's and should be included in the GLMM part of model) with their event covariate info. Fill in 0-count surveys.
+#   surveys <- temp %>%
+#     dplyr::select(-species_code, -distance_bin_id, -distance_bin, -time_bin_id, -count) %>%
+#     distinct() 
+#   
+#   # These are locations at which species was detected at least once
+#   bird_at_loc <- temp %>%
+#     dplyr::filter(species_code == spec) %>%
+#     dplyr::select(location_name) %>%
+#     distinct()
+#   
+#   # Template should only include those locations where species was detected at least once, and should include all survey events at those locations (incl. events species not detected)
+#   
+#   template <- bird_at_loc %>%
+#     dplyr::left_join(surveys, by = "location_name")
+#   
+#   dat <- temp %>%
+#     dplyr::filter(species_code == spec) %>%
+#     dplyr::select(-species_code) %>%
+#     dplyr::right_join(template)
+#   dat$count[is.na(dat$count)] <- 0
+#   
+#   if(!is.na(max_bin_bound) & max_bin_bound == 100) {
+#     dat %<>% 
+#       dplyr::filter(distance_bin_id != "3") %>%
+#       droplevels(.)
+#   }
+#   return(dat)
+# }
 
 # This is a function that catches warnings and attaches them as attribute                                                                     
 CatchWarn <- function(expr) {
