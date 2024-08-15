@@ -53,6 +53,7 @@ pkgs <- c(
   "data.table",
   "leaflet",
   "crosstalk",
+  "glmmTMB",
   "sf") # updated sf version creates some error with tibbles, and apparently need to load the package even though it's only indirectly called. BUT when I load this package and include the last page of dashboard, then other pages don't work
 
 installed_pkgs <- pkgs %in% installed.packages()
@@ -112,7 +113,6 @@ FuncSubsetAnalysisData <- function(dat) {
   return(dat)
 }
 
-odd_sites <- c("VF36", "VF42", "VO08") # <<<<<<<<<<<<<
 ```
 
 ```{r import}
@@ -362,13 +362,16 @@ FuncYrBoxPlotly <- function(dat, free_y) {
   # subplot function
   
   func_subplot_box <- function(plotdat) {
+    if(input$sel_odd_do == "remove") {
+      plotdat %<>% dplyr::filter(!location_name %in% input$sel_odd_points) %>% droplevels(.)
+    }
   
   p <- plotdat %>% 
     dplyr::mutate(fit = fitted(loess(sum_indiv ~ yr))) %>%
     plot_ly(height = total_page_ht) %>%
     add_trace(x = ~yr, y = ~sum_indiv, type = "box", boxmean = TRUE, color = I("black"), alpha = 0) %>%
     add_markers(x = ~jitter(yr),  # this is better than boxpoints b/c boxpoints can't have hover info
-                y = ~jitter(sum_indiv),
+                y = ~jitter(sum_indiv, amount = 0.1),
                 color = I("lightblue"),
                 marker = list(size = 7, opacity = 0.7),
                 text = ~hover_text, 
@@ -407,8 +410,8 @@ FuncYrBoxPlotly <- function(dat, free_y) {
     font = list(size = 15)
     )
   
-      odd_dat <- plotdat %>% dplyr::filter(location_name %in% odd_sites) %>% as.data.frame(.)
-    if(all(input$sel_highlight_points == TRUE, nrow(odd_dat) > 0)) { # highlight the "odd" points--will not totally line up though so will see them still in initial plot
+      odd_dat <- plotdat %>% dplyr::filter(location_name %in% input$sel_odd_points) %>% as.data.frame(.)
+    if(all(input$sel_odd_do == "highlight", nrow(odd_dat) > 0)) { # highlight the "odd" points--will not totally line up though so will see them still in initial plot
    p_final <- add_markers(p,
                   data = odd_dat,
                   x = ~yr,
@@ -458,7 +461,7 @@ FuncYrLinePlotly <- function(dat, color_by, line_by, line_type) {
 
   # total height
   num_facet_rows <- length(unique(dat$unit_code))
-  total_page_ht <- 150 + 350 * num_facet_rows + 10 * num_facet_rows
+  total_page_ht <- 150 + 450 * num_facet_rows + 10 * num_facet_rows
   
   # subplot function
   func_subplot_line <- function(plotdat) {
@@ -468,14 +471,14 @@ FuncYrLinePlotly <- function(dat, color_by, line_by, line_type) {
     if(line_type == "loess") {
       subplot_line %<>% dplyr::mutate(fit = fitted(loess(formula = sum_indiv ~ yr)))
   } else {
-    subplot_line %<>% dplyr::mutate(fit = fitted(lm(formula = sum_indiv ~ yr)))
+    subplot_line %<>% dplyr::mutate(fit = fitted(glmmTMB(sum_indiv ~ yr, family = "poisson"), type = "response"))
   }
     
   p <- subplot_line %<>%
     group_by(location_name) %>%
     plot_ly(height = total_page_ht, legendgroup=~get(color_by)) %>%
-        add_markers(x = ~jitter(yr), 
-                y = ~jitter(sum_indiv),
+        add_markers(x = ~jitter(yr, amount = 0.1), 
+                y = ~jitter(sum_indiv, amount = 0.1),
                 color = ~get(color_by),
                 colors = col_pal,
                 marker = list(size = 7, opacity = 0.4),
@@ -502,8 +505,8 @@ FuncYrLinePlotly <- function(dat, color_by, line_by, line_type) {
     font = list(size = 15)
     )
   
-  odd_dat <- plotdat %>% dplyr::filter(location_name %in% odd_sites) %>% as.data.frame(.)
-    if(all(input$sel_highlight_points == TRUE, nrow(odd_dat) > 0)) { # highlight the "odd" points--will not totally line up though so will see them still in initial plot
+  odd_dat <- plotdat %>% dplyr::filter(location_name %in% input$sel_odd_points) %>% as.data.frame(.)
+    if(all(input$sel_odd_do == "highlight", nrow(odd_dat) > 0)) { # highlight the "odd" points--will not totally line up though so will see them still in initial plot
    p_final <- add_markers(p,
                   data = odd_dat,
                   x = ~yr,
@@ -522,8 +525,9 @@ FuncYrLinePlotly <- function(dat, color_by, line_by, line_type) {
     
   }
   
-  
-  
+  if(input$sel_odd_do == "remove") {
+    dat %<>% dplyr::filter(!location_name %in% input$sel_odd_points) %>% droplevels(.)
+    }
   
   dat %>%
     dplyr::group_by(unit_code) %>%
@@ -545,6 +549,10 @@ FuncYrLinePlotly <- function(dat, color_by, line_by, line_type) {
 
 FuncComboBoxPlotly <- function(dat = NULL, subplot_title = NULL) {
   
+  if(input$sel_odd_do == "remove") {
+      dat %<>% dplyr::filter(!location_name %in% input$sel_odd_points) %>% droplevels(.)
+      }
+  
   p <- ggplot(dat, aes(x = forcats::fct_rev(cov), y = sum_indiv)) + 
     geom_boxplot(fill = "white", color = "black") +
     stat_summary(fun = mean, geom = "point", col = "red", size = 2) +
@@ -554,8 +562,8 @@ FuncComboBoxPlotly <- function(dat = NULL, subplot_title = NULL) {
     theme_bw(base_size = 12) +  # ggplotly messes up axis title spacing, so better to do that in layout
     facet_grid(rows = vars(unit_code), scales = "free_x")
   
-  odd_dat <- dat %>% dplyr::filter(location_name %in% odd_sites) %>% as.data.frame(.)
-    if(all(input$sel_highlight_points == TRUE, nrow(odd_dat) > 0)) { # highlight the "odd" points--will not totally line up though so will see them still in initial plot
+  odd_dat <- dat %>% dplyr::filter(location_name %in% input$sel_odd_points) %>% as.data.frame(.)
+    if(all(input$sel_odd_do == "highlight", nrow(odd_dat) > 0)) { # highlight the "odd" points--will not totally line up though so will see them still in initial plot
       p <- p + geom_point(data = odd_dat, shape = 21, color = "black", fill = "yellow", size = 3, alpha = 0.7, aes(text = hover_text))
     } 
       
@@ -594,6 +602,10 @@ FuncHabPointPlotly <- function() {
     dplyr::left_join(dat_list$df_locs, by = "location_name") %>%
     dplyr::select(unit_code, location_name, hab_type_50, perc_forest_50, perc_opendev_50, prop_understory_cover_50, understory_cover_sd_50, hab_type_100, perc_forest_100, perc_opendev_100, prop_understory_cover_100, understory_cover_sd_100, hab_type_200, perc_forest_200, perc_opendev_200, prop_understory_cover_200, understory_cover_sd_200)
   
+     if(input$sel_park_odd_do == "remove") {
+      point_hab_df %<>% dplyr::filter(!location_name %in% input$sel_park_odd_points) %>% droplevels(.)
+    }
+  
    # total height
   num_facet_rows <- 8
   total_page_ht <- 150 + 350 * num_facet_rows + 25 * num_facet_rows
@@ -604,8 +616,8 @@ FuncHabPointPlotly <- function() {
       p <- plotdat %>%
         dplyr::mutate(fit = fitted(loess(cov_y ~ cov_x))) %>%
         plot_ly(height = total_page_ht) %>%
-        add_markers(x = ~jitter(cov_x), 
-                    y = ~jitter(cov_y),
+        add_markers(x = ~jitter(cov_x, amount = 0.005), 
+                    y = ~jitter(cov_y, amount = 0.005),
                     color = ~color_by,
                     marker = list(size = 7, opacity = 0.4),
                     text = ~hover_text, 
@@ -617,10 +629,11 @@ FuncHabPointPlotly <- function() {
           xaxis = list(title = x_nam)
           )
       
-      odd_dat <- plotdat %>% dplyr::filter(location_name %in% odd_sites) %>% as.data.frame(.)
-    if(all(input$sel_hab_highlight_points == TRUE, nrow(odd_dat) > 0)) { # highlight the "odd" points--will not totally line up though so will see them still in initial plot
+      odd_park_dat <- plotdat %>% dplyr::filter(location_name %in% input$sel_park_odd_points) %>% as.data.frame(.)
+          if(all(input$sel_park_odd_do == "highlight", nrow(odd_park_dat) > 0)) { # highlight the "odd" points--will not totally line up though so will see them still in initial plot
+
    p_final <- add_markers(p,
-                  data = odd_dat,
+                  data = odd_park_dat,
                   x = ~cov_x,
                 y = ~cov_y,
                 marker = list(color = "yellow",
@@ -682,11 +695,11 @@ FuncHabPointPlotly <- function() {
   )
 }
 
-FuncCovPointPlotly <- function(dat) {
+FuncCovPointPlotly <- function(dat, line_type) {
   # Get the data for continuous covariates in long format
   subdat <- dat %>%
-    dplyr::select(unit_code, yr, location_name, species_codename, event_date, sum_indiv, wk, hrs_since_rise, julian_prop, weather_temperature, hab_type_100, perc_forest_50, perc_forest_100, perc_forest_200, perc_opendev_50, perc_opendev_100, perc_opendev_200, prop_understory_cover_50, prop_understory_cover_100, prop_understory_cover_200, understory_cover_sd_50, understory_cover_sd_100, understory_cover_sd_200) %>%
-    tidyr::pivot_longer(cols = c("wk", "hrs_since_rise", "julian_prop", "weather_temperature", "perc_forest_50", "perc_forest_100", "perc_forest_200", "perc_opendev_50", "perc_opendev_100", "perc_opendev_200", "prop_understory_cover_50", "prop_understory_cover_100", "prop_understory_cover_200", "understory_cover_sd_50", "understory_cover_sd_100", "understory_cover_sd_200"), names_to = "covariate_name", values_to = "covariate_value", values_drop_na = TRUE) %>%
+    dplyr::select(unit_code, yr, location_name, species_codename, event_date, sum_indiv, hrs_since_rise, julian_prop, weather_temperature, hab_type_100, perc_forest_50, perc_forest_100, perc_forest_200, perc_opendev_50, perc_opendev_100, perc_opendev_200, prop_understory_cover_50, prop_understory_cover_100, prop_understory_cover_200, understory_cover_sd_50, understory_cover_sd_100, understory_cover_sd_200) %>%
+    tidyr::pivot_longer(cols = c("hrs_since_rise", "julian_prop", "weather_temperature", "perc_forest_50", "perc_forest_100", "perc_forest_200", "perc_opendev_50", "perc_opendev_100", "perc_opendev_200", "prop_understory_cover_50", "prop_understory_cover_100", "prop_understory_cover_200", "understory_cover_sd_50", "understory_cover_sd_100", "understory_cover_sd_200"), names_to = "covariate_name", values_to = "covariate_value", values_drop_na = TRUE) %>%
     dplyr::mutate(
       hover_text = paste0("<span style='font-size:12px; font-weight:bold;'>", unit_code, " ", yr, "<br>", species_codename, "</span><br>", paste0(toupper(covariate_name), ": ", covariate_value), "<br># of Individuals: ", sum_indiv, "<br>Location: ", location_name, "<br>Survey Date: ", event_date, "<br>Habitat (100m): ", hab_type_100),
       color_by = hab_type_100) 
@@ -698,13 +711,24 @@ FuncCovPointPlotly <- function(dat) {
   # subplot function
   func_subplot_covpoint <- function(plotdat) {
     
+    if(input$sel_odd_do == "remove") {
+      plotdat %<>% dplyr::filter(!location_name %in% input$sel_odd_points) %>% droplevels(.)
+    }
+    
     p <- plotdat %>%
-    dplyr::group_by(unit_code) %>%
-    dplyr::mutate(fit = fitted(loess(sum_indiv ~ covariate_value))) %>%
+    dplyr::group_by(unit_code) 
+    
+    if(line_type == "loess") {
+      p %<>% dplyr::mutate(fit = fitted(loess(formula = sum_indiv ~ covariate_value)))
+  } else {
+    p %<>% dplyr::mutate(fit = fitted(glmmTMB(sum_indiv ~ covariate_value, family = "poisson"), type = "response"))
+  }
+    
+    p %<>%
     dplyr::ungroup() %>%
     plot_ly(height = total_page_ht) %>%
-    add_markers(x = ~jitter(covariate_value), 
-                y = ~jitter(sum_indiv),
+    add_markers(x = ~jitter(covariate_value, amount = 0.005), 
+                y = ~jitter(sum_indiv, amount = 0.1),
                 color = ~color_by,
                 marker = list(size = 7, opacity = 0.6),
                 text = ~hover_text, 
@@ -718,7 +742,6 @@ FuncCovPointPlotly <- function(dat) {
   add_annotations(
     text = switch(
       unique(as.character(plotdat$covariate_name)),
-      wk = "Week of Year",
       hrs_since_rise = "Hours Since Sunrise", 
       julian_prop = "Julian day (as proportion of year)",
       weather_temperature = "Air Temperature (C)",
@@ -745,8 +768,8 @@ FuncCovPointPlotly <- function(dat) {
     font = list(size = 15)
     )
     
-    odd_dat <- plotdat %>% dplyr::filter(location_name %in% odd_sites) %>% as.data.frame(.)
-    if(all(input$sel_highlight_points == TRUE, nrow(odd_dat) > 0)) { # highlight the "odd" points--will not totally line up though so will see them still in initial plot
+    odd_dat <- plotdat %>% dplyr::filter(location_name %in% input$sel_odd_points) %>% as.data.frame(.)
+    if(all(input$sel_odd_do == "highlight", nrow(odd_dat) > 0)) { # highlight the "odd" points--will not totally line up though so will see them still in initial plot
    p_final <- add_markers(p,
                   data = odd_dat,
                   x = ~covariate_value,
@@ -766,6 +789,7 @@ FuncCovPointPlotly <- function(dat) {
   }
   
   subdat %>%
+    dplyr::mutate(covariate_name = factor(covariate_name, levels = c("perc_forest_50", "perc_forest_100", "perc_forest_200", "perc_opendev_50", "perc_opendev_100", "perc_opendev_200", "prop_understory_cover_50", "prop_understory_cover_100", "prop_understory_cover_200", "understory_cover_sd_50", "understory_cover_sd_100", "understory_cover_sd_200", "hrs_since_rise", "julian_prop", "weather_temperature"))) %>% # order for plots
     dplyr::group_by(covariate_name) %>%
     plotly::do(p = func_subplot_covpoint(.)) %>% 
     subplot(.,
@@ -788,6 +812,11 @@ FuncHeatCountPlotly <- function(dat) {
 
   # x-axis text
   x_text <- sort(unique(dat$yr_visit))
+  
+  # remove sites if requested
+      if(input$sel_odd_do == "remove") {
+      dat %<>% dplyr::filter(!location_name %in% input$sel_odd_points) %>% droplevels(.)
+      }
   
   # total height
 total_page_ht <- 150 + 15 * length(unique(dat$location_name)) + 40 * length(unique(dat$unit_code))
@@ -1428,8 +1457,8 @@ reactable::reactable(dat_list$df_species,
                                          maxWidth = 120),
                                      avg_surv_detect = colDef(header = with_tooltip("Detections/Survey", "Average # of individuals detected per point-survey"), maxWidth = 120, style = style_avg_detect),
                                        spark_avg_yr = colDef(
-                                         header = with_tooltip("Detections Timeline", "Each point shows the average # of individuals detected per point-survey, by year"), cell = function(values) {
-    sparkline(values, type = "line")}),
+                                         header = with_tooltip("Detections Timeline", "Each bar shows the average # of individuals detected per point-survey, by year"), cell = function(values) {
+    sparkline(values, type = "bar")}),
                                      n_surv = colDef(header = with_tooltip("# of Surveys", "# of point-surveys conducted"), maxWidth = 100),
                                      n_locs = colDef(show = FALSE)
                                      ),
@@ -1475,11 +1504,23 @@ renderUI({
   })
 
 renderUI({
-  shiny::req(!is.null(dat_list$df_full_obs_cov))
+  shiny::req(!is.null(dat_list$df_full_obs_cov), !is.null(input$sel_one_park))
   
-  checkboxInput("sel_hab_highlight_points",
-                label = strong("Highlight pre-defined 'odd' locations"),
-                value = switch(is.null(input$highlight_points)+1, input$highlight_points, TRUE)
+  radioButtons("sel_park_odd_do",
+               label = strong("What to do with selected (below) 'odd' sites: "),
+               choices = c("nothing", "highlight", "remove"),
+               selected = switch(is.null(input$sel_park_odd_do)+1, input$sel_park_odd_do, "highlight")
+               )
+})
+
+renderUI({
+  shiny::req(!is.null(dat_list$df_full_obs_cov), !is.null(input$sel_one_park))     
+  selectizeInput("sel_park_odd_points",
+                 label = strong("Select site(s) to highlight or remove from visuals"),
+                 choices = dat_list$df_full_obs_cov %>%
+    dplyr::filter(unit_code == input$sel_one_park) %>% pull(location_name),
+    selected = switch(is.null(input$sel_park_odd_points)+1, input$sel_park_odd_points, NULL),
+    multiple = TRUE
   )
 })
 ```
@@ -1501,9 +1542,7 @@ Tabs {.tabset .tabset-fade}
 ```{r}
 DT::renderDT({
   shiny::req(!is.null(input$sel_one_park), !is.null(input$sel_yr_end), !is.null(rv$one_park_dat))
-#  saveRDS(isolate(reactiveValuesToList(input)), "temp_input.RDS")
-# saveRDS(isolate(reactiveValuesToList(dat_list)), "temp_dat_list.RDS")
-# saveRDS(isolate(reactiveValuesToList(rv)), "temp_rv.RDS")
+
   DT::datatable(
     rv$one_park_dat,
     class="compact stripe",
@@ -1551,8 +1590,15 @@ output$table_specloc <- DT::renderDT({
     detections_per_survey = round(mean(sum_indiv, na.rm = TRUE), 2)
     )
  
-   specloc_brks <- seq(0, max(specloc_counts$detections_per_survey, na.rm = TRUE), .1)
+ # Set color palettes
+   specloc_brks <- seq(0, max(specloc_counts$detections_per_survey, na.rm = TRUE), 0.1)
   specloc_cols <- c(NA, colorRampPalette(c("white", "purple"))(length(specloc_brks)))
+  
+  forest_brks <- c(0, 0.3, seq(0.4, 1, 0.1))
+  forest_cols <- c(NA, colorRampPalette(c("white", "green"))(length(forest_brks)))
+  
+  dev_brks <- seq(0, 1, 0.1)
+  dev_cols <- c(NA, colorRampPalette(c("white", "brown"))(length(dev_brks)))
  
  specloc_counts %<>%
    tidyr::pivot_wider(names_from = species_code, values_from = detections_per_survey)
@@ -1586,8 +1632,10 @@ output$table_specloc <- DT::renderDT({
       columnDefs = list(list(className = "dt-center", targets = "_all"))
     )
     ) %>% 
-      formatStyle(columns = na.omit(str_extract(names(table_dat), "[:upper:]{4}")), target = "cell", backgroundColor = styleInterval(specloc_brks, specloc_cols)
- )
+      formatStyle(columns = na.omit(str_extract(names(table_dat), "[:upper:]{4}")), target = "cell", backgroundColor = styleInterval(specloc_brks, specloc_cols)) %>% # format color the columns with 4-letter bird code
+  formatStyle(columns = names(table_dat)[str_detect(names(table_dat), "perc_forest")], target = "cell", backgroundColor = styleInterval(forest_brks, forest_cols)) %>% 
+  formatStyle(columns = names(table_dat)[str_detect(names(table_dat), "prop_understory_cover")], target = "cell", backgroundColor = styleInterval(forest_brks, forest_cols)) %>%
+  formatStyle(columns = names(table_dat)[str_detect(names(table_dat), "perc_opendev")], target = "cell", backgroundColor = styleInterval(dev_brks, dev_cols)) 
 })
 
 DT::DTOutput("table_specloc")
@@ -1650,7 +1698,7 @@ renderUI({
 
 renderUI({
   shiny::req(!is.null(dat_list$df_full_obs_cov), !is.null(rv$df_common), !is.null(input$sel_common), !is.null(input$sel_species))
-
+  
   checkboxGroupInput("sel_species_parks",
                      label = strong("Select Park(s): "),
                      choices = FuncParkChoices(input$sel_common, input$sel_species),
@@ -1658,16 +1706,34 @@ renderUI({
                      )
   })
 
+actionButton("button_UpdateSpeciesPlots", "Update Plots", width = "100%", style="border-color:black; background-color: lightgreen; border:0px; margin:0px")
+
+hr()
+
 renderUI({
   shiny::req(!is.null(dat_list$df_full_obs_cov), !is.null(rv$df_common), !is.null(input$sel_common), !is.null(input$sel_species))
+  shiny::validate(need(setequal(input$sel_species_parks, rv$sel_species_parks), message = "Please click 'Update Plots' to refresh plots for the selected park unit(s).")) 
   
-  checkboxInput("sel_highlight_points",
-                label = strong("Highlight pre-defined 'odd' locations"),
-                value = switch(is.null(input$highlight_points)+1, input$highlight_points, TRUE)
+  radioButtons("sel_odd_do",
+               label = strong("What to do with selected (below) 'odd' sites: "),
+               choices = c("nothing", "highlight", "remove"),
+               selected = switch(is.null(input$sel_odd_do)+1, input$sel_odd_do, "highlight")
+               )
+})
+
+renderUI({
+  shiny::req(!is.null(dat_list$df_full_obs_cov), !is.null(input$sel_species_parks), !is.null(rv$sel_species_parks))
+    shiny::req(setequal(input$sel_species_parks, rv$sel_species_parks))         
+  selectizeInput("sel_odd_points",
+                 label = strong("Select site(s) to highlight or remove from visuals"),
+                 choices = dat_list$df_full_obs_cov %>%
+    dplyr::filter(unit_code %in% rv$sel_species_parks) %>% pull(location_name),
+    selected = switch(all(is.null(input$sel_odd_points), input$sel_species_parks == rv$sel_species_parks)+1, input$sel_odd_points, NULL),
+    multiple = TRUE
   )
 })
 
-actionButton("button_UpdateSpeciesPlots", "Update Plots", width = "100%", style="border-color:black; background-color: lightgreen; border:0px; margin:0px")
+
 ```
 
 Tabs {.tabset .tabset-fade}
@@ -1728,8 +1794,7 @@ plotlyOutput('out_BoxPlot', height="100%", width = "100%")
 
 ### Line Graphs of Counts
 
-
-<font size="3">**Lines are NOT model-estimated trends--they are only for visualizing patterns in the RAW DATA and may differ from results of proper statistical model-fitting!!**</font>
+<span style="color:red;"><font size="3">**Lines are NOT model-estimated trends--they are only for visualizing patterns in the RAW DATA and may differ from results of proper statistical model-fitting!!**</font></span>
 
 * <font size="2"> Smoothed or best-fit straight lines are fit to the RAW DATA, WITHOUT CORRECTING FOR DETECTION PROBABILITY, COVARIATE EFFECTS, etc. </font>
 
@@ -1776,6 +1841,10 @@ renderUI({
 ```{r}
 output$out_LineGraph <- renderPlotly({
   shiny::req(!is.null(rv$one_species_dat), !is.null(input$sel_color_lines_by), !is.null(input$sel_lines_by), !is.null(input$sel_lines_type))
+  
+#   saveRDS(isolate(reactiveValuesToList(input)), "temp_input.RDS")
+# saveRDS(isolate(reactiveValuesToList(dat_list)), "temp_dat_list.RDS")
+# saveRDS(isolate(reactiveValuesToList(rv)), "temp_rv.RDS")
   
   FuncYrLinePlotly(dat = rv$one_species_dat, color_by = input$sel_color_lines_by, line_by = input$sel_lines_by, line_type = input$sel_lines_type)
 })
@@ -1832,11 +1901,29 @@ plotlyOutput('out_ComboBoxPlot', height="100%", width = "100%")
 
 ### Numeric Covariates
 
+<span style="color:red;"><font size="3">**Lines are NOT model-estimated trends--they are only for visualizing patterns in the RAW DATA and may differ from results of proper statistical model-fitting!!**</font></span>
+
+* <font size="2"> Points are colored by habitat type within 100m radius. </font>
+
+* <font size="2"> Points show the raw data, JITTERED for easy viewing. </font>
+
+####
+```{r}
+radioButtons("sel_numeric_lines_type",
+             label = h6("Show lines as: "),
+             choiceNames = c("Best linear fit", "Loess smooth"),
+             choiceValues = c("lm", "loess"),
+             selected = "lm",
+             inline = TRUE
+)
+```
+
+####
 ```{r}
 output$out_CovPointPlot <- renderPlotly({
   shiny::req(!is.null(rv$one_species_dat))
   
-  FuncCovPointPlotly(dat = rv$one_species_dat)
+  FuncCovPointPlotly(dat = rv$one_species_dat, line_type = input$sel_numeric_lines_type)
 })
 
 tags$style("#out_CovPointPlot{height:100vh;overflow-x:scroll;overflow-y:scroll}")
@@ -2481,28 +2568,54 @@ DT::renderDT({
 
 ### Event Totals by Species
 ```{r datatable_full_obs}
-# DT::renderDT({
-# 
-#   shiny::req(!is.null(dat_list$df_full_obs_cov))
-# 
-#   DT::datatable(
-#     isolate(dat_list$df_full_obs_cov %>% dplyr::select(-hover_text)),
-#     rownames = FALSE,
-#     filter = "top",
-#     selection = "none",
-#     class="compact stripe",
-#     extensions=c('Buttons','ColReorder'),
-#     options = list(
-#           dom = 'Blrtp',
-#           buttons = list('csv', 'excel'),
-#           lengthMenu = list(c(20,30,40,-1),
-#                           c(20,30,40,"All")),
-#           colReorder=TRUE,
-#         columnDefs = list(list(className = 'dt_center', targets = "_all")),
-#           autoWidth = FALSE
-#         )
-#   )
-#   })
+DT::renderDT({
+
+  shiny::req(!is.null(dat_list$df_full_obs_cov))
+
+  DT::datatable(
+    isolate(dat_list$df_full_obs_cov %>% dplyr::select(-hover_text)),
+    rownames = FALSE,
+    filter = "top",
+    selection = "none",
+    class="compact stripe",
+    extensions=c('Buttons','ColReorder'),
+    options = list(
+          dom = 'Blrtp',
+          buttons = list('csv', 'excel'),
+          lengthMenu = list(c(20,30,40,-1),
+                          c(20,30,40,"All")),
+          colReorder=TRUE,
+        columnDefs = list(list(className = 'dt_center', targets = "_all")),
+          autoWidth = FALSE
+        )
+  )
+  })
+```
+
+### Species
+```{r datatable_detail_species}
+DT::renderDT({
+
+  shiny::req(!is.null(dat_list$df_detail_species))
+
+  DT::datatable(
+    isolate(dat_list$df_detail_species %>% dplyr::select(-spark_avg_yr)),
+    rownames = FALSE,
+    filter = "top",
+    selection = "none",
+    class="compact stripe",
+    extensions=c('Buttons','ColReorder'),
+    options = list(
+          dom = 'Blrtp',
+          buttons = list('csv', 'excel'),
+          lengthMenu = list(c(20,30,40,-1),
+                          c(20,30,40,"All")),
+          colReorder=TRUE,
+        columnDefs = list(list(className = 'dt_center', targets = "_all")),
+          autoWidth = FALSE
+        )
+  )
+  })
 ```
 
 ### Locations
@@ -2513,32 +2626,6 @@ DT::renderDT({
 # 
 #   DT::datatable(
 #     isolate(dat_list$df_locs %>% dplyr::select(-geometry)),
-#     rownames = FALSE,
-#     filter = "top",
-#     selection = "none",
-#     class="compact stripe",
-#     extensions=c('Buttons','ColReorder'),
-#     options = list(
-#           dom = 'Blrtp',
-#           buttons = list('csv', 'excel'),
-#           lengthMenu = list(c(20,30,40,-1),
-#                           c(20,30,40,"All")),
-#           colReorder=TRUE,
-#         columnDefs = list(list(className = 'dt_center', targets = "_all")),
-#           autoWidth = FALSE
-#         )
-#   )
-#   })
-```
-
-### Species
-```{r datatable_detail_species}
-# DT::renderDT({
-#   
-#   shiny::req(!is.null(dat_list$df_detail_species))
-#   
-#   DT::datatable(
-#     isolate(dat_list$df_detail_species %>% dplyr::select(-spark_avg_yr)),
 #     rownames = FALSE,
 #     filter = "top",
 #     selection = "none",

@@ -12,7 +12,8 @@ library(magrittr)
 ### Read in formatted data----
 df_locs <- readRDS(here::here("Data_out", "df_locs.RDS")) # site locations
 df_survey_conditions <- readRDS(here::here("Data_out", "df_survey_conditions.RDS")) # event covariate data
-df_full_obs <- readRDS(here::here("Data_out", "df_full_obs.RDS"))# For each survey event, this is the total number of individuals detected per species. Includes the zero's
+df_full_obs <- readRDS(here::here("Data_out", "df_full_obs.RDS")) %>%
+  dplyr::select(-observer) # For each survey event, this is the total number of individuals detected per species. Includes the zero's
 df_finaldat <- readRDS(here::here("Data_out", "df_finaldat.RDS")) # This is the actual count data, with time bin, distance bin, etc. for each obs. DOES NOT INCLUDE THE ZERO-COUNTS.
 
 ### Functions ----
@@ -20,7 +21,8 @@ FuncSubsetAnalysisData <- function(dat) {
   # Remove data we will not use
   if(park == "VICK") {
     
-    ## For VICK, only using Daniel;s data and only data starting 2012 so can avoid messy changes of researchers and also the very odd timing of 5 surveys (the yr_visits had long timespans that overlapped each other) in 2010
+    ## For VICK, only using Daniel;s data and only data starting 2012 so can avoid messy changes of researchers and also the very odd timing of 5 surveys (the yr_visits had long timespans that overlapped each other) in 2010.
+    # Remove yr_visit 2023_3 b/c that is only for one location 
     dat %<>% 
       dplyr::filter(researcher == "Twedt, Daniel" & yr >= 2012 & yr_visit != "2023_3")
   }
@@ -40,6 +42,9 @@ FuncSubsetAnalysisData <- function(dat) {
     dat %<>%
       dplyr::filter(researcher == "Pruitt,  Kenneth" & yr >= 2013)
   }
+  
+  dat %<>%
+    droplevels(.)
   
   return(dat)
 }
@@ -109,9 +114,9 @@ FuncFormatUnmarkedDist <- function(park, spec, single_visit) { # formerly called
   
   # Add covariates data
   survey_dat_keep <- df_survey_conditions %>%
-    dplyr::select(location_name, event_date, researcher, julian_prop, hrs_since_rise, weather_wind)
+    dplyr::select(location_name, event_date, researcher, julian_prop, hrs_since_rise, weather_wind, weather_temperature_cs)
   loc_dat_keep <- df_locs %>%
-    dplyr::select(location_name, perc_forest_100, perc_forest_200, perc_opendev_100, perc_opendev_200, hab_type_100, hab_type_200, prop_understory_cover_50, prop_understory_cover_100, prop_understory_cover_200, understory_cover_sd_50, understory_cover_sd_100, understory_cover_sd_200)
+    dplyr::select(location_name, perc_forest_50, perc_forest_100, perc_forest_200, perc_opendev_50, perc_opendev_100, perc_opendev_200, hab_type_50, hab_type_100, hab_type_200, prop_understory_cover_50, prop_understory_cover_100, prop_understory_cover_200, understory_cover_sd_50, understory_cover_sd_100, understory_cover_sd_200)
   
   # Add to the count data
   dat_Nmix <- dist_df %>% 
@@ -161,6 +166,10 @@ FuncFormatUnmarkedDist <- function(park, spec, single_visit) { # formerly called
                   hab_type_100_comb = case_when(
                     hab_type_100 == "forest" ~ "forest",
                     hab_type_100 != "forest" ~ "not_forest"
+                  ),
+                  hab_type_50_comb = case_when(
+                    hab_type_50 == "forest" ~ "forest",
+                    hab_type_50 != "forest" ~ "not_forest"
                   )) %>%
     dplyr::mutate(survey_id = paste(unit_code, location_name, event_date)) 
   
@@ -182,10 +191,6 @@ FuncFormatUnmarkedDist <- function(park, spec, single_visit) { # formerly called
     dat_Nmix$first_yr[dat_Nmix$researcher == first_yr$researcher[i] & dat_Nmix$yr == first_yr$first_yr[i]] <- 1
   }
   dat_Nmix$first_yr <- as.factor(dat_Nmix$first_yr)
-  
-  # if(park %in% c("BITH", "PAAL")) {
-  #   dat_Nmix %<>% dplyr::select(-hab_type_100, -hab_type_100_comb, -hab_type_200, -hab_type_200_comb) 
-  # }
   
 
   dat_Nmix %<>% 
@@ -233,9 +238,9 @@ FuncFormatFullObs <- function(park, spec, limit_100m = TRUE) {
   
   # Subset the data and add covariates
   survey_dat_keep <- df_survey_conditions %>%
-    dplyr::select(location_name, event_date, researcher, julian_prop, hrs_since_rise, weather_wind)
+    dplyr::select(location_name, event_date, researcher, julian_prop, hrs_since_rise, weather_wind, weather_temperature_cs)
   loc_dat_keep <- df_locs %>%
-    dplyr::select(location_name, perc_forest_100, perc_forest_200, perc_opendev_100, perc_opendev_200, hab_type_100, hab_type_200, prop_understory_cover_50, prop_understory_cover_100, prop_understory_cover_200, understory_cover_sd_50, understory_cover_sd_100, understory_cover_sd_200)
+    dplyr::select(location_name, perc_forest_50, perc_forest_100, perc_forest_200, perc_opendev_50, perc_opendev_100, perc_opendev_200, hab_type_50, hab_type_100, hab_type_200, prop_understory_cover_50, prop_understory_cover_100, prop_understory_cover_200, understory_cover_sd_50, understory_cover_sd_100, understory_cover_sd_200)
   
   # Add and combine covariates as needed
   obs_dat %<>%
@@ -243,29 +248,6 @@ FuncFormatFullObs <- function(park, spec, limit_100m = TRUE) {
     dplyr::left_join(survey_dat_keep, by = c("location_name", "event_date"))
   
   obs_dat <- FuncSubsetAnalysisData(obs_dat)
-  # if(park == "VICK") {
-  #   
-  #   # For VICK, only using Daniel;s data and only data starting 2012 so can avoid messy changes of researchers and also the very odd timing of 5 surveys (the yr_visits had long timespans that overlapped each other) in 2010
-  #   obs_dat %<>% 
-  #     dplyr::filter(researcher == "Twedt, Daniel" & yr >= 2012 & yr_visit != "2023_3")
-  # }
-  # 
-  # if(park == "BITH") {
-  #   ## REMOVE first three years of data b/c each of these first three years had a different researcher and strong researcher impact
-  #   obs_dat %<>% dplyr::filter(yr >= 2017)
-  #   obs_dat %<>% dplyr::filter(yr_visit != "2018_2")
-  #   
-  # }
-  # 
-  # if(park == "GUIS") {
-  #   obs_dat %<>%
-  #     dplyr::filter(!researcher %in% c("Walker,  Jake", "Sculley,  Mike"))
-  # }
-  # 
-  # if(park == "PAAL") {
-  #   obs_dat %<>%
-  #     dplyr::filter(researcher == "Pruitt,  Kenneth" & yr >= 2013)
-  # }
   
   mod_dat <- obs_dat %>%
     dplyr::mutate(yr_c = yr - median(range(obs_dat$yr, na.rm = TRUE), na.rm = TRUE), # centered on median
@@ -283,6 +265,10 @@ FuncFormatFullObs <- function(park, spec, limit_100m = TRUE) {
                   hab_type_100_comb = case_when(
                     hab_type_100 == "forest" ~ "forest",
                     hab_type_100 != "forest" ~ "not_forest"
+                  ),
+                  hab_type_50_comb = case_when(
+                    hab_type_50 == "forest" ~ "forest",
+                    hab_type_50 != "forest" ~ "not_forest"
                   )) %>%
     dplyr::mutate(survey_id = paste(unit_code, location_name, event_date)) %>%
     dplyr::mutate_if(is.character, as.factor) %>%
@@ -302,7 +288,7 @@ FuncFormatFullObs <- function(park, spec, limit_100m = TRUE) {
   mod_dat$first_yr <- as.factor(mod_dat$first_yr)
   
   if(park == "PAAL") {
-    mod_dat %<>% dplyr::select(-hab_type_100)
+    mod_dat %<>% dplyr::select(-hab_type_50, -hab_type_100)
   }
   
   mod_dat %<>%
