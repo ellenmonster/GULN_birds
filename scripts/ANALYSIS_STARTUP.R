@@ -17,6 +17,42 @@ df_full_obs <- readRDS(here::here("Data_out", "df_full_obs.RDS")) %>%
 df_finaldat <- readRDS(here::here("Data_out", "df_finaldat.RDS")) # This is the actual count data, with time bin, distance bin, etc. for each obs. DOES NOT INCLUDE THE ZERO-COUNTS.
 
 ### Functions ----
+FuncSubsetAnalysisData_DROPSITES <- function(dat) {
+  # Remove data we will not use
+  if(park == "VICK") {
+    
+    ## For VICK, only using Daniel;s data and only data starting 2012 so can avoid messy changes of researchers and also the very odd timing of 5 surveys (the yr_visits had long timespans that overlapped each other) in 2010.
+    # Remove yr_visit 2023_3 b/c that is only for one location 
+    dat %<>% 
+      dplyr::filter(researcher == "Twedt, Daniel" & yr >= 2012 & yr_visit != "2023_3")
+    
+    # Drop the 3 odd sites
+    dat %<>% dplyr::filter(!location_name %in% c("VO08", "VM07", "VF36")) %>% droplevels()
+  }
+  
+  if(park == "BITH") {
+    ## REMOVE first three years of data b/c each of these first three years had a different researcher and strong researcher impact
+    dat %<>% dplyr::filter(yr >= 2017)
+    dat %<>% dplyr::filter(yr_visit != "2018_2")
+  }
+  
+  if(park == "GUIS") {
+    dat %<>%
+      dplyr::filter(!researcher %in% c("Walker,  Jake", "Sculley,  Mike"))
+  }
+  
+  if(park == "PAAL") { # NOTE: I only started doing this for models I ran in May 2024
+    dat %<>%
+      dplyr::filter(researcher == "Pruitt,  Kenneth" & yr >= 2013)
+  }
+  
+  dat %<>%
+    droplevels(.)
+  
+  return(dat)
+}
+
+
 FuncSubsetAnalysisData <- function(dat) {
   # Remove data we will not use
   if(park == "VICK") {
@@ -201,7 +237,7 @@ FuncFormatUnmarkedDist <- function(park, spec, single_visit) { # formerly called
   return(dat_Nmix)
   }
 
-FuncFormatFullObs <- function(park, spec, limit_100m = TRUE) {
+FuncFormatFullObs <- function(park, spec, limit_100m = TRUE, drop_sites = FALSE) {
   # Format the df_full_obs for use
   # Add a column to indicate a researcher's first year of survey
   # Combine cov. levels
@@ -247,13 +283,21 @@ FuncFormatFullObs <- function(park, spec, limit_100m = TRUE) {
     dplyr::left_join(loc_dat_keep, by = c("location_name")) %>%
     dplyr::left_join(survey_dat_keep, by = c("location_name", "event_date"))
   
-  obs_dat <- FuncSubsetAnalysisData(obs_dat)
+  if(drop_sites == TRUE) {
+    obs_dat <- FuncSubsetAnalysisData_DROPSITES(obs_dat)
+  } else {
+    obs_dat <- FuncSubsetAnalysisData(obs_dat)
+  }
+  
   
   mod_dat <- obs_dat %>%
     dplyr::mutate(yr_c = yr - median(range(obs_dat$yr, na.rm = TRUE), na.rm = TRUE), # centered on median
+                  yr_sc = as.numeric(scale(yr, center = TRUE, scale = TRUE)),
                   yr_c_f = as.factor(yr_c),
-                  julian_prop_c = scale(julian_prop, center = TRUE, scale = FALSE),
-                  hrs_since_rise_c = scale(hrs_since_rise, center = TRUE, scale = FALSE),
+                  julian_prop_c = scale(julian_prop, center = TRUE, scale = FALSE) %>% as.vector(),
+                  julian_prop_sc = scale(julian_prop, center = TRUE, scale = TRUE) %>% as.vector(),
+                  hrs_since_rise_c = scale(hrs_since_rise, center = TRUE, scale = FALSE) %>% as.vector(),
+                  hrs_since_rise_sc = scale(hrs_since_rise, center = TRUE, scale = TRUE) %>% as.vector(),
                   weather_wind_comb = case_when(
                     weather_wind %in% c("0_calm", "1_smoke_drifts", "2_light_breeze") ~ "calm",
                     weather_wind %in% c( "3_constant_breeze", "4_branches_move", "5_trees_sway") ~ "windy"

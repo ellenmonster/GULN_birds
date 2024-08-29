@@ -1597,6 +1597,9 @@ output$table_specloc <- DT::renderDT({
   forest_brks <- c(0, 0.3, seq(0.4, 1, 0.1))
   forest_cols <- c(NA, colorRampPalette(c("white", "green"))(length(forest_brks)))
   
+  understory_sd_brks <- seq(0, 0.35, by = 0.05)
+  understory_sd_cols <- c(NA, colorRampPalette(c("white", "gray"))(length(understory_sd_brks)))
+  
   dev_brks <- seq(0, 1, 0.1)
   dev_cols <- c(NA, colorRampPalette(c("white", "brown"))(length(dev_brks)))
  
@@ -1606,7 +1609,7 @@ output$table_specloc <- DT::renderDT({
  # Get the location habitat variables and merge with species counts
  table_dat <- dat_list$df_full_obs_cov %>%
    dplyr::filter(unit_code == input$sel_one_park) %>%
-   dplyr::select(location_name, perc_forest_50, perc_forest_100, perc_forest_200, perc_opendev_50, perc_opendev_100, perc_opendev_200, prop_understory_cover_50, prop_understory_cover_100, prop_understory_cover_200, understory_cover_sd_50, understory_cover_sd_100, understory_cover_sd_100) %>%
+   dplyr::select(location_name, perc_forest_50, perc_forest_100, perc_forest_200, perc_opendev_50, perc_opendev_100, perc_opendev_200, prop_understory_cover_50, prop_understory_cover_100, prop_understory_cover_200, understory_cover_sd_50, understory_cover_sd_100, understory_cover_sd_200) %>%
    dplyr::left_join(specloc_counts[, c(TRUE, colSums(specloc_counts[,-1], na.rm = TRUE) > 0)], by = "location_name") %>%
    distinct()
  
@@ -1635,6 +1638,7 @@ output$table_specloc <- DT::renderDT({
       formatStyle(columns = na.omit(str_extract(names(table_dat), "[:upper:]{4}")), target = "cell", backgroundColor = styleInterval(specloc_brks, specloc_cols)) %>% # format color the columns with 4-letter bird code
   formatStyle(columns = names(table_dat)[str_detect(names(table_dat), "perc_forest")], target = "cell", backgroundColor = styleInterval(forest_brks, forest_cols)) %>% 
   formatStyle(columns = names(table_dat)[str_detect(names(table_dat), "prop_understory_cover")], target = "cell", backgroundColor = styleInterval(forest_brks, forest_cols)) %>%
+   formatStyle(columns = names(table_dat)[str_detect(names(table_dat), "understory_cover_sd")], target = "cell", backgroundColor = styleInterval(understory_sd_brks, understory_sd_cols)) %>%
   formatStyle(columns = names(table_dat)[str_detect(names(table_dat), "perc_opendev")], target = "cell", backgroundColor = styleInterval(dev_brks, dev_cols)) 
 })
 
@@ -1798,6 +1802,8 @@ plotlyOutput('out_BoxPlot', height="100%", width = "100%")
 
 * <font size="2"> Smoothed or best-fit straight lines are fit to the RAW DATA, WITHOUT CORRECTING FOR DETECTION PROBABILITY, COVARIATE EFFECTS, etc. </font>
 
+* <font size="2"> Linear fit is on log-count, then back-transformed for display (lines are exponential curves rather than straight lines). </font>
+
 * <font size="2"> Points show the raw data, JITTERED for easy viewing. </font>
 
 ####
@@ -1902,6 +1908,8 @@ plotlyOutput('out_ComboBoxPlot', height="100%", width = "100%")
 ### Numeric Covariates
 
 <span style="color:red;"><font size="3">**Lines are NOT model-estimated trends--they are only for visualizing patterns in the RAW DATA and may differ from results of proper statistical model-fitting!!**</font></span>
+
+* <font size="2"> Linear fit is on log-count, then back-transformed for display (lines are exponential curves rather than straight lines). </font>
 
 * <font size="2"> Points are colored by habitat type within 100m radius. </font>
 

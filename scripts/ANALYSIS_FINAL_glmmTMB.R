@@ -1,5 +1,6 @@
 ### GULN BIRDS - glmmTMB
 
+
 ### READINGS ----
 # > https://stats.stackexchange.com/questions/86269/what-is-the-effect-of-having-correlated-predictors-in-a-multiple-regression-mode
 # > https://stats.stackexchange.com/questions/78828/is-there-a-difference-between-controlling-for-and-ignoring-other-variables-i/78830#78830
@@ -56,6 +57,8 @@ invisible(lapply(pkgs, library, character.only = TRUE))
 ### START ANALYSIS ----
 source(here::here("scripts", "ANALYSIS_STARTUP.R")) # Read in formatted data
 park = "VICK"
+spec = "ACFL" # go through each of the top species...
+
 # num_species <- 20
 # 
 # # FIND MOST ABUNDANT SPECIES ----
@@ -75,9 +78,7 @@ park = "VICK"
 # # SUBSET AND SCALE COVARIATES ----
 # top_species$species_code
 
-spec = "BLJA" # go through each of the top species...
-
-dat <- FuncFormatFullObs(park = park, spec = spec, limit_100m = TRUE) 
+dat <- FuncFormatFullObs(park = park, spec = spec, limit_100m = TRUE, drop_sites = FALSE) # <<<<<<<<<<<<< DROP_SITES OR NOT
 # dat %<>% dplyr::filter(subunit == "GUIS-FL"); dat$subunit <- as.character(dat$subunit)
 # dat %<>% dplyr::filter(subunit == "MI"); dat$subunit <- as.character(dat$subunit)
 
@@ -100,6 +101,7 @@ colSums(is.na(dat))
 
 dat <- dat[complete.cases(dat),] # <<<<<<<<<< SHOULD DO THIS AFTER DETERMINING COVARIATES?
 nrow(dat)
+sum(dat$sum_indiv) # total detections in final dataset
 
 # SCALE PREDICTORS----
 dat$prop_understory_cover_50_sc <- scale(dat$prop_understory_cover_50) %>% as.vector()
@@ -115,59 +117,45 @@ dat$perc_opendev_50_sc <- scale(dat$perc_opendev_50) %>% as.vector()
 dat$perc_opendev_100_sc <- scale(dat$perc_opendev_100) %>% as.vector()
 dat$perc_opendev_200_sc <- scale(dat$perc_opendev_200) %>% as.vector()
 
+if(park == "VICK"){
+  dat %<>% dplyr::mutate(odd3 = factor(ifelse(prop_understory_cover_50<0.4, "odd3_locs", "all_other_locs"))) # This is useful for some bird species... the 'odd3' locations
+}
+
+
 dat %>% dplyr::group_by(subunit) %>% summarize(tot = sum(sum_indiv))
 
+# >>>>> Check for complete separation
+dat %>% dplyr::group_by(weather_wind_comb) %>% summarize(mean(sum_indiv))
+dat %>% dplyr::group_by(odd3) %>% summarize(mean(sum_indiv))
+dat %>% dplyr::group_by(yr_c_f) %>% summarize(mean(sum_indiv))
+
+# >>>>> Check for covariate patterns that may explain unusually low or high years
+table(dat$yr_c_f, dat$weather_wind_comb)
+table(dat$yr_c_f, dat$odd3)
 
 ### EDA ----
-# PARTYKIT: Classification tree. Think of it as piecewise linear. Gives us different information from linear regression--may be useful for identifying interactions and polynomial predictors
+
+## >>>>> FIRST, LOOK ON DASHBOARD FOR YEAR TRENDS, ODD YEARS (OR YRS WITH NO DETECTIONS), UNUSUAL HIGH NUMBERS (E.G., LIKELY INFLUENTIAL POINTS FOR TREND MODEL), NUMBER OF LOCATIONS WITH NO DETECTIONS EVER, PREDICTOR RELATIONSHIPS. ALSO LOOK UP HABITAT FOR THE SPECIES TO SET EXPECTATIONS ABOUT PREDICTORS. LOOK FOR EVIDENCE OF COMPLETE SEPARATION.
+
+# >>>> CHECK WHICH BIRDS IF ANY SHOW DIFFERENT PATTERN FOR HABITAT COVER @ DIFFERENT SCALES
+
+# PARTYKIT: Classification tree. Think of it as piecewise linear. Gives us different information from linear regression--may be useful for identifying interactions and polynomial predictors. Sometimes it identifies a fork, but the numbers don't differ much on either side of the fork or the sample size is really small for one fork or the cutoff for the fork is near a boundary. Consider those with a grain of salt.
 
 ## SAAN & GUIS--add subunit
 
 # dat %<>% dplyr::filter(subunit=="MI") # <<<<< SAAN ONLY, AS NEEDED
 
 ## as needed... researcher + first_yr (BITH, PAAL, GUIS?)
-names(dat)
 
-dat_tree <- partykit::ctree(sum_indiv ~ subunit, data = dat)
+
+dat_tree <- partykit::ctree(sum_indiv ~ prop_understory_cover_50_sc + prop_understory_cover_100_sc, data = dat) # 
 plot(dat_tree)
 
-dat_tree <- partykit::ctree(sum_indiv ~ researcher, data = dat)
+dat_tree <- partykit::ctree(sum_indiv ~odd3 + prop_understory_cover_50_sc + prop_understory_cover_100_sc, data = dat) # 
 plot(dat_tree)
 
-dat_tree <- partykit::ctree(sum_indiv ~ hab_type_200 +hab_type_100+hab_type_50, data = dat)
+dat_tree <- partykit::ctree(sum_indiv ~prop_understory_cover_50_sc + prop_understory_cover_100_sc +  perc_forest_100_sc +perc_opendev_100_sc +  understory_cover_sd_100_sc + weather_wind_comb + weather_temperature_cs + julian_prop_sc + hrs_since_rise_sc , data = dat) # 
 plot(dat_tree)
-
-dat_tree <- partykit::ctree(sum_indiv ~ hab_type_200_comb +hab_type_100_comb + hab_type_50_comb, data = dat)
-plot(dat_tree)
-
-dat_tree <- partykit::ctree(sum_indiv ~ hab_type_200 +hab_type_100 + hab_type_50 + hab_type_200_comb +hab_type_100_comb + hab_type_50_comb, data = dat) # <<<<<<<<<<<<<<<
-plot(dat_tree)
-
-dat_tree <- partykit::ctree(sum_indiv ~ perc_opendev_50 + perc_opendev_100 + perc_opendev_200, data = dat)
-plot(dat_tree)
-
-dat_tree <- partykit::ctree(sum_indiv ~ perc_forest_50 + perc_forest_100 + perc_forest_200, data = dat)
-plot(dat_tree)
-
-dat_tree <- partykit::ctree(sum_indiv ~ hab_type_200_comb +hab_type_100_comb + hab_type_50_comb + perc_forest_50 + perc_forest_100 + perc_forest_200 + perc_opendev_50 + perc_opendev_100 + perc_opendev_200, data = dat) # <<<<<<<<<
-plot(dat_tree)
-
-dat_tree <- partykit::ctree(sum_indiv ~prop_understory_cover_50 + prop_understory_cover_100 + prop_understory_cover_200, data = dat)
-plot(dat_tree)
-
-dat_tree <- partykit::ctree(sum_indiv ~understory_cover_sd_50 + understory_cover_sd_100+understory_cover_sd_200, data = dat)
-plot(dat_tree)
-
-dat_tree <- partykit::ctree(sum_indiv ~prop_understory_cover_50 + prop_understory_cover_100 + prop_understory_cover_200 + understory_cover_sd_50 + understory_cover_sd_100 + understory_cover_sd_200, data = dat) # <<<<<<<<
-plot(dat_tree)
-
-dat_tree <- partykit::ctree(sum_indiv ~weather_wind_comb + weather_temperature_cs + julian_prop + hrs_since_rise, data = dat) # <<<<<<<<<<<<
-plot(dat_tree)
-
-# pull the main ones together now...
-dat_tree <- partykit::ctree(sum_indiv ~prop_understory_cover_50 + hrs_since_rise, data = dat)
-plot(dat_tree)
-
 
 ### MODEL NOTES ----
 ## NOTES ON BITH MODEL
@@ -186,335 +174,286 @@ plot(dat_tree)
 
 # Start with Poisson null model
 mod0pois <-glmmTMB(formula = sum_indiv ~ 0 + yr_c_f + (1 | location_name), data = dat, family = poisson)
-performance::check_overdispersion(mod0pois) # Check for overdispersion. dispersion ratio >1 is overdispersion. Note that the dispersion ratio is calculated by... sum((residuals(mod0pois, type = "pearson"))^2)/df.residual(mod0pois)
-performance::check_distribution(mod0pois) # See if negative binomial might be better, or if need zero-inflation
+performance::check_overdispersion(mod0pois, alternative = "two.sided") # Check for overdispersion. dispersion ratio >1 is overdispersion. Note that the dispersion ratio is calculated by... sum((residuals(mod0pois, type = "pearson"))^2)/df.residual(mod0pois). Statistical signif means to reject equidispersion (i.e., indicates it's overdispersed or underdispersed).
+# performance::check_distribution(mod0pois) # See if negative binomial might be better, or if need zero-inflation
 
-# Try NB null model IF it seems appropriate
-mod0nb <- glmmTMB(formula = sum_indiv ~ 0 + yr_c_f + (1 | location_name), data = dat, family = nbinom2)
+# # # Try NB null model IF it seems appropriate
+# mod0nb <- glmmTMB(formula = sum_indiv ~ 0 + yr_c_f + (1 | location_name), data = dat, family = nbinom2)
+# summary(mod0nb)
 
 # Try conway (slower, but use parallel processing)
 mod0comp <- glmmTMB(formula = sum_indiv ~ 0 + yr_c_f + (1 | location_name), data = dat, family="compois", ziformula = ~0, dispformula = ~1, control = glmmTMBControl(parallel = 8))
-
-# ....year heterogeneity
-mod0comp_disp_yr <- glmmTMB(formula = sum_indiv ~ yr_c_f + (1 | location_name), data = dat, family="compois", ziformula = ~0, dispformula = ~yr_c_f, control = glmmTMBControl(optCtrl = list(trace = 1), parallel = 8))
+summary(mod0comp)
 
 # Zero-inflated Poisson
 mod0pois_zi <-glmmTMB(formula = sum_indiv ~ 0 + yr_c_f + (1 | location_name), data = dat, family = poisson, ziformula = ~1)
-
-# ....ZI by location
-mod0pois_zi_loc <-glmmTMB(formula = sum_indiv ~ 0 + yr_c_f + (1 | location_name), data = dat, family = poisson, ziformula = ~location_name)
-
-# AICc to compare
-mod_list <- tibble::lst(mod0pois, mod0comp, mod0comp_disp_yr, mod0pois_zi, mod0pois_zi_loc, mod0nb)
-performance::compare_performance(mod_list, rank = TRUE) # CANNOT INCLUDE MODELS THAT DROP DATA HERE, THE DATASET HAS TO BE THE SAME FOR ALL COMPARED MODELS!
-# aictab(mod_list, second.ord = TRUE)
-ggstats::ggcoef_compare(mod_list) 
-
-# Assign best one to mod0 (if underdispersed, it may be comp instead of pois regardless of AICc?)
-mod0 <- mod0pois
-
-### Try partykit-suggested interactions (use centered.scaled)
-# Compare models then do diagnostics and adjust as necessary
-# Adjustments include replacing correlated values in interactions with quadratics
-mod_partybest <- update(mod0, formula = ~. + prop_understory_cover_50_sc*hrs_since_rise_c)
-summary(mod_partybest)
-
+summary(mod0pois_zi)
+plogis(-21.62)
 
 # AICc to compare
-temp_mod_list <- c(mod_list, tibble::lst(mod_party11, mod_party12))
-mod_list <- temp_mod_list
+mod_list <- tibble::lst(mod0pois, mod0comp, mod0pois_zi)# mod0nb) #, mod0pois_zi_loc)#, mod0nb)
+performance::compare_performance(mod_list, rank = TRUE, metrics = "common") # CANNOT INCLUDE MODELS THAT DROP DATA HERE, THE DATASET HAS TO BE THE SAME FOR ALL COMPARED MODELS!
 
-mod_list <- tibble::lst(mod0, mod_partybest, mod_party1, mod_party2, mod_party3, mod_party4, mod_party5, mod_party6, mod_party7, mod_party8, mod_party9) 
-(p <- performance::compare_performance(mod_list, rank = TRUE))
-plot(p)
-# BIC usually penalizes # of parameters more than AIC does
-# ICC is more for 
-ggstats::ggcoef_compare(tibble::lst(mod_list$mod_party5, mod_list$mod_party6, mod_list$mod_party8, mod_list$mod_party10))
+# Assign best one to mod0 (prioritize BIC)
 
-# Check diagnostics on best-fit party model and, if needed, try additional models below
+mod0 <- mod0comp
 
 # Add covariates
 
 ## ONE BY ONE... ----
-# For each group, identify the most significant scale (if any)--do not change these, they cover all available covariates
-# If only linear is signif, re-run with only linear
-mod1 <- update(mod0, formula = ~. + hab_type_50_comb)
-summary(mod1) # 
+# TRy quadratic if EDA suggests that is more appropriate
+# >>> CHECK FOR VERY STRANGE ESTIMATES!
 
-mod2 <- update(mod0, formula = ~. + hab_type_100_comb)
+
+mod1 <- update(mod0, formula = ~. + perc_forest_100_sc)# + I(perc_forest_100_sc^2))
+summary(mod1)  #
+
+mod2 <- update(mod0, formula = ~. + perc_opendev_100_sc)# + I(perc_opendev_200_sc^2))
 summary(mod2) # 
 
-mod3 <- update(mod0, formula = ~. + hab_type_200_comb)
-summary(mod3) 
+mod3 <- update(mod0, formula = ~. + understory_cover_sd_100_sc)#+ I(understory_cover_sd_100_sc^2))
+summary(mod3) # 
 
-mod4 <- update(mod0, formula = ~. + perc_forest_50_sc + I(perc_forest_50_sc^2))
+mod4 <- update(mod0, formula = ~.+ prop_understory_cover_100_sc ) #+ I(prop_understory_cover_100_sc^2))
 summary(mod4) # 
 
-mod5 <- update(mod0, formula = ~. + perc_forest_100_sc + I(perc_forest_100_sc^2))
-summary(mod5) # <<< .52, 0.046
+mod5 <- update(mod0, formula = ~. + julian_prop_sc)# + I(julian_prop_sc^2))
+summary(mod5) # 
 
-mod6 <- update(mod0, formula = ~. + perc_forest_200_sc + I(perc_forest_200_sc^2))
-summary(mod6) 
+mod6 <- update(mod0, formula = ~. + hrs_since_rise_sc)# + I(hrs_since_rise_sc^2))
+summary(mod6) # 
 
-mod7 <- update(mod0, formula = ~. + perc_opendev_50_sc + I(perc_opendev_50_sc^2))
-summary(mod7) #
+mod7 <- update(mod0, formula = ~. + weather_wind_comb)
+summary(mod7) # 
 
-mod8 <- update(mod0, formula = ~. + perc_opendev_100_sc + I(perc_opendev_100_sc^2))
+mod8 <- update(mod0, formula = ~. + weather_temperature_cs)
 summary(mod8) # 
 
-mod9 <- update(mod0, formula = ~. + perc_opendev_200_sc + I(perc_opendev_200_sc^2))
-summary(mod9) 
+mod9 <- update(mod0, formula = ~. + prop_understory_cover_50_sc)
+summary(mod9) # 
 
-mod10 <- update(mod0, formula = ~. + understory_cover_sd_50_sc + I(understory_cover_sd_50_sc^2))
+mod10 <- update(mod0, formula = ~. + odd3)
 summary(mod10) # 
 
-mod11 <- update(mod0, formula = ~. + understory_cover_sd_100_sc + I(understory_cover_sd_100_sc^2))
-summary(mod11) # 
-
-mod12 <- update(mod0, formula = ~. + understory_cover_sd_200_sc)#+ I(understory_cover_sd_200_sc^2))
-summary(mod12) # 0.026
-
-mod13 <- update(mod0, formula = ~.+ prop_understory_cover_50_sc) # + I(prop_understory_cover_50_sc^2))
-summary(mod13) # <<<<<<<<<<<<<<<
-
-mod14 <- update(mod0, formula = ~.+ prop_understory_cover_100_sc + I(prop_understory_cover_100_sc^2))
-summary(mod14) 
-
-mod15 <- update(mod0, formula = ~.+ prop_understory_cover_200_sc + I(prop_understory_cover_200_sc^2))
-summary(mod15) # 
-
-mod16 <- update(mod0, formula = ~. + julian_prop_c + I(julian_prop_c^2))
-summary(mod16) # 
-
-mod17 <- update(mod0, formula = ~. + hrs_since_rise_c)# + I(hrs_since_rise_c^2))
-summary(mod17) # 0.007
-
-mod18 <- update(mod0, formula = ~. + weather_wind_comb)
-summary(mod18) # 
-
-mod19 <- update(mod0, formula = ~. + weather_temperature_cs)
-summary(mod19) # 
-
 # Compare models
-mod_list <- tibble::lst(mod0, mod1, mod2, mod3, mod4, mod5, mod6, mod7, mod8, mod9, mod10, mod11, mod12, mod13, mod14, mod15, mod16, mod17, mod18, mod19) # see how these rankings compare to EDA
-performance::compare_performance(mod_list, rank = TRUE)
+mod_list <- tibble::lst(mod0, mod1, mod2, mod3, mod4, mod5, mod6, mod7, mod8, mod9) #, mod10) # >>>>> if odd3 is overwhelming, retry it without
+(perf <- performance::compare_performance(mod_list, rank = TRUE, metrics = "common")) # How much variability does the model actually explain?
 
 ## FULL MODEL... ----
 # Include all variables that were statistically signif (or close) in single models OR in partykit, possibly ordered by compare_performance. For each, use the scale that is "most" signif.
 # Include polynomials if signif in regression tree
 
-mod_full <- update(mod0, formula = ~. + prop_understory_cover_50_sc + I(prop_understory_cover_50_sc^2) + understory_cover_sd_200_sc + hrs_since_rise_c + I(hrs_since_rise_c^2) + perc_forest_100_sc + I(perc_forest_100_sc^2))
+mod_full <- update(mod0, formula = ~. + hrs_since_rise_sc + perc_opendev_100_sc + weather_temperature_cs + understory_cover_sd_100_sc)
 summary(mod_full)
-
-# >>> NOTES:
 
 ## NOW SUBSETS REMOVING THE LEAST IMPORTANT ONE BY ONE, THEN IN GROUPS... 
 # remove one at a time, check the model, remove next least important
 # swap out some correlated ones also
+# >> IF ODD3 WAS IMPORTANT, TRY MODELS WITH UNDERSTORY50 QUADRATIC AS SUBSTITUTE
 
-mod_sub1 <- update(mod_full, formula = ~. -I(prop_understory_cover_50_sc^2))
+mod_sub1 <- update(mod_full, formula = ~. - weather_temperature_cs)
 summary(mod_sub1)
 
-mod_sub2 <- update(mod_full, formula = ~.-I(prop_understory_cover_50_sc^2) - I(hrs_since_rise_c^2))
+mod_sub2 <- update(mod_full, formula = ~. - hrs_since_rise_sc - weather_temperature_cs)
 summary(mod_sub2)
 
-mod_sub3 <- update(mod_full, formula = ~. -I(prop_understory_cover_50_sc^2) - I(hrs_since_rise_c^2) - perc_forest_100_sc - I(perc_forest_100_sc^2))
+mod_sub3 <- update(mod_full, formula = ~. - hrs_since_rise_sc)
 summary(mod_sub3)
 
-mod_sub4 <- update(mod_full, formula = ~. -I(prop_understory_cover_50_sc^2) - I(hrs_since_rise_c^2) -understory_cover_sd_200_sc)
+mod_sub4 <- update(mod_full, formula = ~. - understory_cover_sd_100_sc - weather_temperature_cs)
 summary(mod_sub4)
 
-mod_sub5 <- update(mod_full, formula = ~. -I(prop_understory_cover_50_sc^2) - I(hrs_since_rise_c^2) - perc_forest_100_sc - I(perc_forest_100_sc^2)-understory_cover_sd_200_sc)
-summary(mod_sub5)
+# >>>> TRY UNDERSTORY PREDICTOR AS ODD3 SUBSTITUTE <<<<
+mod_adj1 <- update(mod_sub1, formula = ~. + prop_understory_cover_50_sc)
+summary(mod_adj1)
 
+mod_adj2 <- update(mod_sub1, formula = ~. + prop_understory_cover_50_sc + I(prop_understory_cover_50_sc^2))
+summary(mod_adj2)
 
+mod_adj3 <- update(mod_sub1, formula = ~. + odd3)
+summary(mod_adj3)
 
-# Compare models
-# If it's not the slimmest model that is chosen, go back and drop things in different orders from the best-fit-so-far
-# Include mod0 and party models
-mod_list <- tibble::lst(mod0, mod_partybest, mod_full, mod_sub1, mod_sub2, mod_sub3, mod_sub4, mod_sub5) #, mod_sub3, mod_sub4, mod_sub5, mod_sub6, mod_sub7, mod_sub8)
-(p <- performance::compare_performance(mod_list, rank = TRUE))
+mod_adj4 <- update(mod_sub1, formula = ~. + odd3 - understory_cover_sd_100_sc)
+summary(mod_adj4)
+
+# >>>>>>>>>>>> TESTER! <<<<<<<<<<<<<<<<<<<<
+mod_list <- tibble::lst(mod2, mod1, mod_full, mod_sub1, mod_sub2, mod_sub3, mod_sub4, mod_adj1, mod_adj2, mod_adj3, mod_adj4)
+(p <- performance::compare_performance(mod_list, rank = TRUE, metrics = "common"))
 plot(p)
-ggstats::ggcoef_compare(tibble::lst(mod13, mod_sub5, mod_sub3)) # do this for subset of models
+ggstats::ggcoef_compare(tibble::lst(mod_sub1, mod_sub5)) # do this for subset of models
 
-# CROSS-VALIDATE subset of models ----
-#Include the BIC-best-supported. Default metric is MSE. Smaller MSE is better. Does this tend to go with the BIC-best-fit?
+
+### ASSIGN BEST-FIT MODEL (CHECK FOR RED FLAGS!) AND SAVE ----
+# Use BIC as primary criterion, but if BIC is similar use the model with better AIC and/or R^2
+# !!! Check the standard errors and coefficients--if very large SE or extreme coefficients, there is a problem. Perhaps even caused by a single location.
+# For zero-inflated models (or any distribution NOT Poisson, check the additional distribution parameter for nonsensicality. For example, if best-fit is zero-inflated but the zero-inflation estimate is near zero, the problem is probably one data point, site, etc.)
+# For VICK, check EDA for an "odd3" effect that should be modeled--especially if the best-fit (w/o odd3 predictor) is a very complicated model> BUT>>>> better to use a quadratic understory_50 if can b/c it is more meaningful
+# Check if top models all have similar estimates and CI's
+# How much variability do the models actually explain? (maybe they all suck)
+# Prioritize best-fit BIC, but check if coef similar with best-fit AIC and highest R2 models. If diagnostics really not good...
+  #- is it because a single site? (can try leverage)
+  #- cross-validate to see which model is best CV
+  #- try brms?
+  #- try increasingly complex models that are best-fit AIC until diagnostics are good--but only if it makes sense ecologically and there is not much difference across the estimates & CI's compared to slimmer model, the added predictors are significant or almost, and no issues with huge SE's or weird betas. 
+
+
+### SAVE THE FULL MOD_LIST----
+# Full model list <<<<<<< BRING TOGETHER ALL MOD_LISTS
+mod_list <- tibble::lst(mod0pois, mod0comp, mod0pois_zi, mod0, mod1, mod2, mod3, mod4, mod5, mod6, mod7, mod8, mod9, mod10, mod_full, mod_sub1, mod_sub2, mod_sub3, mod_sub4, mod_adj1, mod_adj2, mod_adj3, mod_adj4) 
+# (p <- performance::compare_performance(mod_list, rank = TRUE))
+saveRDS(mod_list, here::here("tmb_mods_FINAL", paste0("tmb_", park, "_", spec, "_100m_yearmod_modlist.RDS")))
+
+### SAVE THE FINAL 100M 2-VISIT YEAR MODEL----
+year_mod <- mod_adj4 # <<<<<<<<<
+mod_dat <- dat 
+
+saveRDS(year_mod, here::here("tmb_mods_FINAL", paste0("tmb_", park, "_", spec, "_100m_yearmod.RDS")))
+saveRDS(mod_dat, here::here("tmb_mods_FINAL", paste0("tmb_", park, "_", spec, "_100m_dat.RDS")))
+
+
+## [IF NEEDED] CROSS-VALIDATE subset of models ----
+#Include the BIC-best-supported. Default metric is MSE. Smaller MSE is better. Does this tend to go with the BIC-best-fit? Include others with more AIC support and statistically signif. predictors that help with diagnostics
 mod_dat <- dat
-(cv_yearmod_list <- cv::cv(cv::models(mod_best_comp = mod_best_comp, mod_sub3 = mod_sub3, mod_sub5 = mod_sub5), data = mod_dat, clusterVariables = "location_name", ncores = 8, k = 20))
+(cv_yearmod_list <- cv::cv(cv::models(mod_sub2 = mod_sub2, mod_full = mod_full), data = mod_dat, ncores = 8, k = 10))
+(cv_yearmod_loc_list <- cv::cv(cv::models(mod_sub2 = mod_sub2, mod_full = mod_full), data = mod_dat, clusterVariables = "location_name", ncores = 8, k = 10))
 # SAVE THE CV LIST
-saveRDS(cv_yearmod_list, here::here("tmb_mods", paste0("tmb_", park, "_", spec, "_cv_yearmod_list.RDS")))
+saveRDS(cv_yearmod_list, here::here("tmb_mods_FINAL", paste0("tmb_", park, "_", spec, "_cv_yearmod_list.RDS")))
+saveRDS(cv_yearmod_loc_list, here::here("tmb_mods_FINAL", paste0("tmb_", park, "_", spec, "_cv_yearmod_loc_list.RDS")))
 
 # # Check also with LOO--this often hangs up
 # (LOO_year_mod_list <- cv::cv(cv::models(mod13 = mod13, mod_sub3 = mod_sub3, mod_sub5 = mod_sub5), data = mod_dat, ncores = 8, k = "loo", start = TRUE))
 
-
-## THIS IS THE MODEL TO EVALUATE...
-
-year_mod <- mod_sub5
-mod_dat <- dat 
-
-### SAVE THE FULL MOD_LIST
-# Full model list <<<<<<< BRING TOGETHER ALL MOD_LISTS
-mod_list <- tibble::lst(mod0pois, mod0comp,mod0pois_zi, mod0pois_zi_loc, mod0nb, mod_partybest, mod0, mod1, mod2, mod3, mod4, mod5, mod6, mod7, mod8, mod9, mod10, mod11, mod12, mod13, mod14, mod15, mod16, mod17, mod18, mod19, mod_full, mod_sub1, mod_sub2, mod_sub3, mod_sub4, mod_sub5) 
-saveRDS(mod_list, here::here("tmb_mods", paste0("tmb_", park, "_", spec, "_100m_yearmod_modlist.RDS")))
-
-### SAVE THE FINAL 100M 2-VISIT YEAR MODEL ----
-saveRDS(year_mod, here::here("tmb_mods", paste0("tmb_", park, "_", spec, "_100m_yearmod.RDS")))
-saveRDS(mod_dat, here::here("tmb_mods", paste0("tmb_", park, "_", spec, "_100m_dat.RDS")))
-
-
-## [AS NEEDED] TRY ADJUSTED MODELS ----
-# DO THIS ONLY IF DIAGNOSTICS ARE NOT GOOD!! COME BACK AND MAKE MODEL ADJUSTMENTS BASED ON DIAGNOSTICS... DROP UNUSUAL SITES, ADD INTERACTIONS, OTHER CHANGES AS NEEDED... ADD THEM TO THE FULL LIST AND REPEAT
-# try dropping unusual sites
-# NOTE: Cannot do model selection when data differ
-mod_adj1 <- update(mod_sub3, dispfo)
-
-##COMPARE BEST SET OF MODELS 
-mod_list = tibble::lst(mod0pois, mod0comp, mod0pois_zi, mod0nb, mod1, mod2, mod3, mod4, mod5, mod6, mod7, mod8, mod9, mod10, mod11, mod12, mod13, mod_full, mod_sub1, mod_sub2, mod_sub3, mod_sub4, mod_sub5, mod_sub6, mod_adj1, mod_adj2, mod_adj3, mod_adj4, mod_adj5, mod_adj6, mod_adj7, mod_adj8)
-
-mod_list = tibble::lst(year_mod, mod_adj1, mod_adj2, mod_adj3, mod_adj4, mod_adj5, mod_adj6, mod_adj7, mod_adj8)
-(p <- performance::compare_performance(mod_list, rank = TRUE))
-plot(p) # Check which models perform best with R^2 vs BIC vs AIC
-
-ggstats::ggcoef_compare(tibble::lst(mod_full, mod_sub3, mod_sub5)) # do this for subset of models
-
-## [AS NEEDED] Go back and check different model distributions on best model ----
-year_mod$call
-
-mod_best_pois <-glmmTMB(formula = sum_indiv ~ yr_c_f + (1 | location_name) + 
-                          understory_cover_sd_50_sc + I(understory_cover_sd_50_sc^2) + 
-                          prop_understory_cover_100_sc + I(prop_understory_cover_100_sc^2) + 
-                          hrs_since_rise_c, data = dat, family = poisson)
-
-mod_best_zi <-glmmTMB(formula = sum_indiv ~ yr_c_f + (1 | location_name) + 
-                        understory_cover_sd_50_sc + I(understory_cover_sd_50_sc^2) + 
-                        prop_understory_cover_100_sc + I(prop_understory_cover_100_sc^2) + 
-                        hrs_since_rise_c, data = dat, family = poisson, ziformula = ~1)
-
-mod_best_nb <- glmmTMB(formula = sum_indiv ~ yr_c_f + (1 | location_name) + 
-                         understory_cover_sd_50_sc + I(understory_cover_sd_50_sc^2) + 
-                         prop_understory_cover_100_sc + I(prop_understory_cover_100_sc^2) + 
-                         hrs_since_rise_c, data = dat, family = nbinom2)
-
-mod_best_comp <- glmmTMB(formula = sum_indiv ~ yr_c_f + (1 | location_name) + 
-                           prop_understory_cover_50_sc + hrs_since_rise_c, data = dat, family = "compois", ziformula = ~0, dispformula = ~1, control = glmmTMBControl(parallel = 8))
-
-# Comparison of different distributions with best-fit model... redo submodels with 'best' distribution if it changes here
-mod_list_distrib = tibble::lst(year_mod, mod_best_comp) #mod_best_pois, mod_best_zi, mod_best_nb)
-performance::compare_performance(mod_list_distrib, rank = TRUE)
-
-## [AS NEEDED] DROP SITES OR OTHER ADJUSTMENTS FROM BEST-FIT MODEL ----
-# Do this if DHARMA results suggest one or a few sites are driving odd diagnostics
-# mod_drop3 <- update(year_mod, data = dat %>% dplyr::filter(!location_name %in% c("VF36", "VM07")) %>% droplevels(.)) # mod_sub4, but drop site with the highest single survey count (N=4)
-ggstats::ggcoef_compare(tibble::lst(year_mod, mod_best_comp))
-
-new_mod_list <- c(mod_list, tibble::lst(mod_dropVF31))
-saveRDS(new_mod_list, here::here("tmb_mods", paste0("tmb_", park, "_", spec, "_100m_yearmod_modlist.RDS")))
-
-
-### DIAGNOSTICS ON BEST-FIT MODEL ----
-mod <- year_mod
-# mod_dat <- dat %>% dplyr::filter(!location_name %in% c("VF36", "VM07")) #dat # dat %>% dplyr::filter(location_name != "VF31") %>% droplevels(.)
-
-# mod_list <- readRDS(here::here("tmb_mods", paste0("tmb_", park, "_", spec, "_100m_yearmod_modlist.RDS")))
-
-summary(mod) # make sure no absurd standard errors
-ggstats::ggcoef_table(mod, intercept = FALSE, table_witdhs = c(2, 1)) + labs(title = "XXX")
-
-## pp-checks
-performance::check_model(mod)
-performance::check_predictions(mod, check_range = TRUE)
-performance::check_heterogeneity_bias(mod)
-performance::check_collinearity(mod) # If interaction terms are included in a model, high VIF values are expected. 
-performance::check_autocorrelation(mod) 
-performance::check_overdispersion(mod)
-performance::check_zeroinflation(mod)
-
-## CHECK FOR HIGH LEVERAGE LOCATIONS ----
+## [IF NEEDED] CHECK FOR HIGH LEVERAGE LOCATIONS ----
 ## >>> CANNOT YET CHECK FOR INFLUENTIAL POINTS IN GLMMTMB MODELS, BUT THEY ARE WORKING ON IT... https://github.com/glmmTMB/glmmTMB/pull/1065
 source(system.file("other_methods","influence_mixed.R", package="glmmTMB"))
 # For influential POINTS...
-mod_leverage_case <- influence_mixed(mod, groups=".case")
+# mod_leverage_case <- influence_mixed(mod, groups=".case")
 
-# For influential locations...
-mod_leverage <- influence_mixed(mod, groups="location_name")
+# For influential locations... DO THIS IF DIAGNOSTIC PROBLEMS
+mod_leverage <- influence_mixed(mod, groups="location_name", ncores = 8)
 
 # Convert to data frame, then heat map
 x <- as.data.frame(mod_leverage$`fixed.effects[-location_name]`)
 x_long <- x %>% rownames_to_column(var = "location_name") %>% tidyr::pivot_longer(data = ., cols = -location_name, names_to = "FE", values_to = "coef")
 
-x_long_sub <- x_long %>% dplyr::filter(!FE %like% "yr_c_f")
+x_long_sub <- x_long
+# x_long_sub <- x_long %>% dplyr::filter(!FE %like% "yr_c_f")
 
 p <- ggplot(x_long_sub, aes(x = FE, y = location_name, fill = coef)) + geom_tile() + geom_text(aes(label = round(coef, 2)), size = 4, color = "white") # this heat map shows for each FE, what the estimated coefficient is if you exclude that location from the an
 ggplotly(p)
 
-### Dharma checks for glmmTMB ----
-simres <- DHARMa::simulateResiduals(fittedModel = mod, n = 1000, refit = FALSE, plot = TRUE) # re-simulate all levels, to test model structure as a whole. The default is resimulating on all levels (unconditional sims) instead of simulating conditional on the fitted random effects.
-simres <- DHARMa::simulateResiduals(fittedModel = mod, n = 1000, refit = FALSE, re.form = NULL, plot = TRUE) #re-simulate conditional on the fitted random effects, i.e., the RE's are not re-simulated. More sensitive for detecting problems, but it doesn't test all possible options.
+saveRDS(p, here::here("tmb_mods_FINAL", paste0("tmb_", park, "_", spec, "_100m_yearmod_levtable.RDS")))
+# saveRDS(p, here::here("tmb_mods_FINAL", paste0("tmb_", park, "_", spec, "_100m_trendmod_levtable.RDS")))
+
+## [AS NEEDED] TRY ADJUSTED MODELS ----
+# DO THIS ONLY IF DIAGNOSTICS ARE NOT GOOD!! COME BACK AND MAKE MODEL ADJUSTMENTS BASED ON DIAGNOSTICS... DROP UNUSUAL SITES, ADD INTERACTIONS, OTHER CHANGES AS NEEDED... ADD THEM TO THE FULL LIST AND REPEAT
+# try dropping unusual sites
+# NOTE: Cannot do model selection when data differ
+
+mod_adj3 <- update(mod_sub1, family = poisson, ziformula = ~1)
+summary(mod_adj3)
+
+
+## [AS NEEDED] DROP SITES OR OTHER ADJUSTMENTS FROM BEST-FIT MODEL ----
+# Do this if DHARMA results suggest one or a few sites are driving odd diagnostics
+# mod_drop1 <- update(year_mod, data = dat %>% dplyr::filter(!location_name %in% c("VF36", "VM07")) %>% droplevels(.)) # mod_sub4, but drop site with the highest single survey count (N=4)
+
+
+### GLMMTMB DIAGNOSTICS ON BEST-FIT MODEL ----
+# NOTE: https://github.com/glmmTMB/glmmTMB/issues/888 talks about glmmTMB w/DHARMA--doesn't have capability to simulate conditional on RE's, and may lead to apparent issues of autocorrelated residuals
+# year_mod <- update(mod_adj1, data = dat %>% dplyr::filter(!location_name %in% c("VO08")))
+# BIC favors excluding interaction but R2 and AIC and DHARMA diagnostics much better with interaction; coefficients similar for both, but interaction is signif
+mod <- year_mod
+mod <- trend_mod
+mod_dat <- dat
+
+
+summary(mod) # make sure no absurd standard errors
+ggstats::ggcoef_table(mod, intercept = FALSE, table_witdhs = c(2, 1)) + labs(title = "XXX") # THESE ARE WALD CI'S!
+
+
+### GLMMTMB PERFORMANCE CHECKS ----
+performance::check_model(mod, check = c("pp_check", "vif", "qq","linearity", "reqq"))
+performance::check_predictions(mod, check_range = TRUE)
+performance::check_collinearity(mod) # If interaction terms are included in a model, high VIF values are expected. Can run check on the model without interaction to make sure not a problem. High VIF doesn't bias the estimate but makes the 95%CI larger.
+performance::check_autocorrelation(mod) # if autocorrelation detected, there may be unmodeled clustering of the data
+performance::check_overdispersion(mod)
+performance::check_zeroinflation(mod)
+
+# ## check residuals on own
+# resid <- simulate_residuals(mod, quantile_function = qnorm, iterations = 500)
+# df <- cbind(mod$frame, sim_resid = residuals(resid), fit = fitted(mod))
+# ggplot(df, aes(x = fit, y = sim_resid, color = location_name)) + geom_point() + geom_smooth(method = "lm", se = FALSE) + facet_wrap(~location_name) # plot residuals against fitted
+
+
+### DHARMA CHECKS ----
+# NOTE: IF the diagnostics are "wonky" (no obvious pattern, but jumping around somewhat randomly) then try running it in brms and checking diagnostics there (are there just some odd sites, etc.?)
+
+# simres <- DHARMa::simulateResiduals(fittedModel = mod, n = 1000, refit = FALSE, plot = TRUE) # re-simulate all levels, to test model structure as a whole. The default is resimulating on all levels (unconditional sims) instead of simulating conditional on the fitted random effects.
+# simres <- DHARMa::simulateResiduals(fittedModel = mod, n = 1000, refit = FALSE, re.form = NULL, plot = TRUE) #re-simulate conditional on the fitted random effects, i.e., the RE's are not re-simulated. More sensitive for detecting problems, but it doesn't test all possible options.
 
 DHARMa::testZeroInflation(simres)
 
 DHARMa::testDispersion(simres) # test for over/under dispersion
 DHARMa::testOutliers(simres, type = "bootstrap")
 
-
-
-# Plot residuals vs each independent factor ----
+# Plot residuals vs each independent factor
 # Identify the ones with problems--were any of these identified as important earlier?
 # Is weirdness due to just one or two odd sites?
-DHARMa::plotResiduals(simres, mod_dat$yr_c)
+DHARMa::plotResiduals(simres, mod_dat$yr_sc)
 DHARMa::plotResiduals(simres, as.factor(mod_dat$yr_c_f))
-DHARMa::plotResiduals(simres, mod_dat$hab_type_50_comb, rank  = FALSE)
-DHARMa::plotResiduals(simres, mod_dat$hab_type_100_comb, rank  = FALSE)
-DHARMa::plotResiduals(simres, mod_dat$hab_type_200_comb, rank  = FALSE)
+DHARMa::plotResiduals(simres, as.factor(mod_dat$odd3))
 
-DHARMa::plotResiduals(simres, mod_dat$perc_forest_50, rank  = FALSE)
 DHARMa::plotResiduals(simres, mod_dat$perc_forest_100, rank  = FALSE)
-DHARMa::plotResiduals(simres, mod_dat$perc_forest_200, rank  = FALSE) # <
-
-DHARMa::plotResiduals(simres, mod_dat$perc_opendev_50, rank  = FALSE)
 DHARMa::plotResiduals(simres, mod_dat$perc_opendev_100, rank  = FALSE)
-DHARMa::plotResiduals(simres, mod_dat$perc_opendev_200, rank  = FALSE)
-
 DHARMa::plotResiduals(simres, mod_dat$prop_understory_cover_50, rank  = FALSE) #
 DHARMa::plotResiduals(simres, mod_dat$prop_understory_cover_100, rank  = FALSE) # 
-DHARMa::plotResiduals(simres, mod_dat$prop_understory_cover_200, rank  = FALSE) # <<
-
-
-DHARMa::plotResiduals(simres, mod_dat$understory_cover_sd_50, rank  = FALSE)
 DHARMa::plotResiduals(simres, mod_dat$understory_cover_sd_100, rank  = FALSE) # <<
-DHARMa::plotResiduals(simres, mod_dat$understory_cover_sd_200, rank  = FALSE)
 
 DHARMa::plotResiduals(simres, mod_dat$weather_wind_comb, rank  = FALSE)
-DHARMa::plotResiduals(simres, mod_dat$julian_prop_c, rank  = FALSE)
-DHARMa::plotResiduals(simres, mod_dat$hrs_since_rise_c, rank  = FALSE)
+DHARMa::plotResiduals(simres, mod_dat$weather_temperature_cs, rank  = FALSE)
+DHARMa::plotResiduals(simres, mod_dat$julian_prop_sc, rank  = FALSE)
+DHARMa::plotResiduals(simres, mod_dat$hrs_since_rise_sc, rank  = FALSE)
 DHARMa::plotResiduals(simres, mod_dat$researcher, rank  = FALSE)
 DHARMa::plotResiduals(simres, mod_dat$first_yr, rank  = FALSE)
 
-# ### Append Dharma residuals to model data ----
+# If there are diagnostic problems below, not a big deal--unless a lot of problems with clear trends
+DHARMa::plotResiduals(simres, mod_dat$perc_forest_50, rank  = FALSE)
+DHARMa::plotResiduals(simres, mod_dat$perc_forest_200, rank  = FALSE) # 
+
+DHARMa::plotResiduals(simres, mod_dat$perc_opendev_50, rank  = FALSE)
+DHARMa::plotResiduals(simres, mod_dat$perc_opendev_200, rank  = FALSE)
+
+DHARMa::plotResiduals(simres, mod_dat$prop_understory_cover_200, rank  = FALSE) # <<
+
+DHARMa::plotResiduals(simres, mod_dat$understory_cover_sd_50, rank  = FALSE)
+DHARMa::plotResiduals(simres, mod_dat$understory_cover_sd_200, rank  = FALSE)
+
+### [IF NEEDED] Append Dharma residuals to model data ----
 dat_append <- cbind(mod_dat, predicted = DHARMa::getFitted(mod), resid = DHARMa::getResiduals(mod))
 dat_append$scaled_resid = scales::rescale(dat_append$resid, to = c(0,1), from = range(dat_append$resid, na.rm = TRUE))
 dat_append$rank_pred = datawizard::ranktransform(dat_append$understory_cover_sd_100)
 plotly::ggplotly(ggplot(dat_append, aes(x=understory_cover_sd_100, y = scaled_resid, group = 1, text = paste0(location_name, "<br>Observed: ", sum_indiv, "<br>PredictedResponse: ", round(predicted, 2), "<br>Cov: ", understory_cover_sd_100, "<br>Resid: ", round(resid,2)))) + geom_point() + geom_quantile(), tooltip = "text")
 
-### SAVE THE FINAL 100M 2-VISIT YEAR MODEL ----
-saveRDS(year_mod, here::here("tmb_mods", paste0("tmb_", park, "_", spec, "_100m_yearmod.RDS")))
-saveRDS(mod_dat, here::here("tmb_mods", paste0("tmb_", park, "_", spec, "_100m_dat.RDS")))
 
 ### CHECK THE PREDICTION PLOT ----
-# NOTE THESE ARE WALD CI'S!!!
 
 ## ggemmeans to get year predictions <<<<<<<<<<<<<<<<<<<<<<< CHANGE THIS IN FINAL SUMMARIES
 # ggeffects::predict_response(mod, terms = c("yr_c_f", "subunit"), margin = "mean_reference", type = "zero_inflated")) # > Note that to get emmeans, 'margin = "marginalmeans"' but then can't do zero-inflation with that
 # (temp_tmb_pred_yearmod <- ggemmeans(mod_tmb_yearmod, terms=c("yr_c_f"), type = "fixed") %>% # # type = ifelse(tmb_zi==TRUE, "fe.zi", "fixed"))) #### ZERO-INFLATION PART DOESN' WORK!!!
 
-tmb_zi <- ifelse(mod$modelInfo$allForm$ziformula=="~1", TRUE, FALSE)
+year_mod_zi <- ifelse(year_mod$modelInfo$allForm$ziformula=="~1", TRUE, FALSE)
 
-tmb_pred_yearmod <- ggpredict(mod, terms=c("yr_c_f"), type = ifelse(tmb_zi==TRUE, "zero_inflated", "fixed")) # This is same as below
+# tmb_pred_yearmod <- ggpredict(year_mod, terms=c("yr_c_f"), type = ifelse(year_mod_zi==TRUE, "zero_inflated", "fixed")) # This is same as below
 
-(tmb_pred_yearmod <- ggeffects::predict_response(mod, terms=c("yr_c_f"), margin = "mean_mode", type = ifelse(tmb_zi==TRUE, "zero_inflated", "fixed")))
+# # CHeck interaction effects!! [IF APPLICABLE]
+# tmb_pred_yearmod_interact <- ggeffects::predict_response(year_mod, terms=c("perc_opendev_50_sc", "odd3"), margin = "mean_mode", type = ifelse(year_mod_zi==TRUE, "zero_inflated", "fixed")) %>% plot()
+# saveRDS(tmb_pred_yearmod_interact, here::here("tmb_mods_FINAL", paste0("tmb_", park, "_", spec, "_100m_yearmod_interaction_plot.RDS")))
 
-(tmb_pred_yearmod %<>% 
+# Check year estimates
+(brms_pred_yearmod <- ggeffects::predict_response(mod_brms, terms=c("yr_c_f [all]"), margin = "mean_mode", type = ifelse(year_mod_zi==TRUE, "zero_inflated", "fixed")))
+
+(brms_pred_yearmod %<>% 
    as.data.frame() %>%
    janitor::clean_names() %>%
     dplyr::mutate(yr_c = as.numeric(as.character(x))) %>%
@@ -524,9 +463,9 @@ tmb_pred_yearmod <- ggpredict(mod, terms=c("yr_c_f"), type = ifelse(tmb_zi==TRUE
       yr_predicted = predicted,
       yr_conf_low = conf_low,
       yr_conf_high = conf_high))
-tmb_pred_yearmod$yr <- tmb_pred_yearmod$yr_c+(range(dat$yr) %>% median())
+brms_pred_yearmod$yr <- brms_pred_yearmod$yr_c+(range(dat$yr) %>% median())
 
-ggplot(data = tmb_pred_yearmod) + 
+ggplot(data = brms_pred_yearmod) + 
   geom_errorbar(
     mapping = aes(x = yr, y = yr_predicted, ymin = yr_conf_low, ymax = yr_conf_high, color = group), width = 0) +
   geom_point(
@@ -534,30 +473,36 @@ ggplot(data = tmb_pred_yearmod) +
   facet_grid(rows = vars(group))
 
 
-### TRY BRMS ----
-# Figure out how to do best weakly informative priors
-# If it doesn't work, try on personal laptop with cmdstanr
+### BRMS YEAR MODEL----
+
+mod_dat <- dat
+
 mod_brms <- brms::brm(
-  formula = sum_indiv ~ yr_c_f + (1 | location_name) + 
-    prop_understory_cover_50_sc + hrs_since_rise_c,
+  formula = sum_indiv ~ yr_c_f + (1 | location_name) + hrs_since_rise_sc + perc_forest_100_sc + weather_wind_comb + prop_understory_cover_50_sc,
   data = mod_dat,
-  family = brmsfamily("poisson"),
-  # family = brmsfamily("com_poisson"),
+  # family = brmsfamily("poisson"),
+  family = brmsfamily("com_poisson"),
+  prior = c(prior(normal(0,1), class = b)),
   # sample_prior = "only", # <<<<<<<<<<< CHECK PRIORS
-  iter = 4000, warmup = 1000, chains = 4, cores = 4,
-  file = here::here("brms_mods", paste0("brms_", park, "_", spec, "_100m_yearmod.RDS"))
-)
-pp_check(mod_brms, ndraws = 200)
-mod_brms <- add_criterion(mod_brms, criterion = c("loo", "waic"), force_save = TRUE)
-loo(mod_brms)
-saveRDS(mod_dat, here::here("brms_mods", paste0("brms_", park, "_", spec, "_100m_yearmod_dat.RDS")))
+  iter = 4000, warmup = 1000, chains = 1, cores = 8)
+
+pp_check(mod_brms, ndraws = 500)
+
+mod_brms <- add_criterion(mod_brms, criterion = c("loo"))
+
+saveRDS(mod_brms, here::here("brms_mods_FINAL", paste0("brms_", park, "_", spec, "_100m_yearmod.RDS"))) # <<<<<
+
+# # If there are INFLUENTIAL POINTS, they are usually the ones that are particularly high or low in early or late years
+(mod_loo <- loo(mod_brms)) %>% plot(., label_points = TRUE)
+
+saveRDS(mod_loo, here::here("brms_mods_FINAL", paste0("brms_", park, "_", spec, "_100m_yearmod_loo.RDS"))) # <<<<
+# dat_loo <- cbind(dat[, c("location_name", "event_date", "sum_indiv")], mod_loo$diagnostics$pareto_k)
+# View(dat_loo)
 
 
-### TREND MODELS ----
-# For random slopes...+ (1 + yr_c | location_name)). You can actually omit the '1+' b/c it is assumed--to manually remove intercept RE, would do '0+'. In all models, include random intercept AND slope. For some models, it may also make sense to have a fixed effect interaction of habitat type with year. The base GLMM model is therefore:  Overall trend (yr_c) plus year to year fluctuations concordant across locations (1|yr_f) plus random variation among locations in location-specific trends ( 1 + yr_c | location_name). Also, note   https://academic.oup.com/esr/article-abstract/35/2/258/5306121?redirectedFrom=fulltext
+### GLMMTMB TREND MODELS ----
+# For random slopes...+ (1 + yr_sc | location_name)). You can actually omit the '1+' b/c it is assumed--to manually remove intercept RE, would do '0+'. In all models, include random intercept AND slope. For some models, it may also make sense to have a fixed effect interaction of habitat type with year. The base GLMM model is therefore:  Overall trend (yr_sc) plus year to year fluctuations concordant across locations (1|yr_f) plus random variation among locations in location-specific trends ( 1 + yr_sc | location_name). Also, note   https://academic.oup.com/esr/article-abstract/35/2/258/5306121?redirectedFrom=fulltext
 # >>>>> CHECK IF I SHOULD HAVE ADDED DISPFORMULA =~1, OR IF THAT IS DEFAULT
-# If removed any locations for best-fit mod, use that same data set for trend model
-
 # Start with the best-fit year model, then try models with hab*yr interaction if that seems appropriate and use diagnostics, etc. to see if should drop/add other covariates
 # Try dropping covariates that in year model were only driven by one or two sites
 
@@ -568,140 +513,206 @@ saveRDS(mod_dat, here::here("brms_mods", paste0("brms_", park, "_", spec, "_100m
 #          stat_smooth(method = "lm", se = TRUE)
 # plotly::ggplotly(p)
 # 
-# raw_trend <- lm(formula = sum_indiv ~ yr_c*location_name, data = mod_dat)
+# raw_trend <- lm(formula = sum_indiv ~ yr_sc*location_name, data = mod_dat)
 # trend_coef <- broom::tidy(raw_trend)
-# trend_df <- trend_coef[grep("yr_c:location_name", trend_coef$term), ]
-# trend_df$term <- gsub(pattern = "yr_c:location_name", replacement = "", trend_df$term) # then color by estimate
+# trend_df <- trend_coef[grep("yr_sc:location_name", trend_coef$term), ]
+# trend_df$term <- gsub(pattern = "yr_sc:location_name", replacement = "", trend_df$term) # then color by estimate
 
 
 
 mod$call
-### BASE TREND MODEL ----
+### BASE TREND MODEL & CHECK RE VARIANCES
 # BASE model is trend with year trend, year RE and location intercept&slope RE 
-trend_mod_base <- glmmTMB(sum_indiv ~ yr_c + (1 | yr_c_f) + (1 + yr_c | location_name), data = mod_dat, family = "poisson")
-                        # "compois", ziformula = ~0, dispformula = ~1, control = glmmTMBControl(parallel = 8)) 
-summary(trend_mod_base)
+trend_mod_base_compois <- glmmTMB(sum_indiv ~ yr_sc + (1 | yr_c_f) + (1 + yr_sc | location_name), data = mod_dat, family = "compois", ziformula = ~0, dispformula = ~1, control = glmmTMBControl(parallel = 8)) 
+summary(trend_mod_base_compois)
 
-# IF RE variance is practically zero, consider dropping it
-trend_mod_base2 <- glmmTMB(sum_indiv ~ yr_c + (1 + yr_c | location_name), data = mod_dat, family = "poisson")
+trend_mod_base_poisson <- glmmTMB(sum_indiv ~ yr_sc + (1 | yr_c_f) + (1 + yr_sc | location_name), data = mod_dat, family = "poisson")
+summary(trend_mod_base_poisson)
+
+trend_mod_base_pois_zi <- glmmTMB(sum_indiv ~ yr_sc + (1 | yr_c_f) + (1 + yr_sc | location_name), data = mod_dat, family = "poisson", ziformula = ~1)
+summary(trend_mod_base_pois_zi)
+
+
+## [ONLY IF MODELS WON'T CONVERGE] TRY DROPPING SOME RANDOM EFFECTS ----# IF RE variance is practically zero, consider dropping it
+trend_mod_base2 <- glmmTMB(sum_indiv ~ yr_sc + (1 + yr_sc | location_name), data = mod_dat, family = "compois", ziformula = ~0, dispformula = ~1, control = glmmTMBControl(parallel = 8)) 
 summary(trend_mod_base2)
 
-# IF the RE's are highly correlated, drop the slope
-trend_mod_base3 <- glmmTMB(sum_indiv ~ yr_c + (1|location_name), data = mod_dat, family = "poisson")
+
+# IF the RE's are highly correlated AND if location slope RE is nearly zero, drop the slope
+# plot the relationship btwn intercept and slope RE
+
+trend_mod_base3 <- glmmTMB(sum_indiv ~ yr_sc + (1|yr_c_f) + (1|location_name), data = mod_dat, family = "compois", ziformula = ~0, dispformula = ~1, control = glmmTMBControl(parallel = 8)) 
 summary(trend_mod_base3)
 
+# If the RE's are highly correlated BUT LOCATION SLOPE VARIANCE IS NOT NEARLY ZERO drop the correlation
+trend_mod_base4 <- glmmTMB(formula = sum_indiv ~ yr_sc + (1 | yr_c_f) + (1 + yr_sc ||location_name), data = mod_dat, family = "compois", ziformula = ~0, dispformula = ~1, control = glmmTMBControl(parallel = 8))
+summary(trend_mod_base4)
+
+trend_mod_base_pois_zi_wind <- glmmTMB(sum_indiv ~ yr_sc + (1 | yr_c_f) + (1 + yr_sc | location_name), data = mod_dat, family = "poisson", ziformula = ~weather_wind_comb)
+summary(trend_mod_base_pois_zi_wind)
+
+anova(trend_mod_base4, trend_mod_base3)
 # Compare base models
 # Exponentiate to get % of population in next year. exp(trend_coef)^(1:10) to see % over next 10 years. Need to bootstrap CI to get correct CI on trend.
-trend_mod_base_list <- tibble::lst(trend_mod_base, trend_mod_base2, trend_mod_base3)
+trend_mod_base_list <- tibble::lst(trend_mod_base_poisson, trend_mod_base_compois)
 performance::compare_performance(trend_mod_base_list, rank = TRUE)
-ggstats::ggcoef_compare(trend_mod_base_list) 
-(cv_trend_base_mod <- cv::cv(models(trend_mod0=trend_mod0, trend_mod0_Xhab=trend_mod0_Xhab), data = mod_dat, reps = 5))
- 
-trend_mod_base_RE <- trend_mod_base3 # <<<<<<<<<<<<< ENTER HERE
+ggstats::ggcoef_compare(tibble::lst(trend_mod0, trend_mod_base4))
 
-## HABITAT INTERACTION WITH YEAR-SLOPE----
-trend_mod_base_hab50 <- update(trend_mod_base_RE, formula = ~.+ yr_c*hab_type_50_comb)
+(cv_trend_base_mod <- cv::cv(models(trend_mod0=trend_mod0, trend_mod0_Xhab=trend_mod0_Xhab), data = mod_dat, reps = 5))
+
+trend_mod_base_RE <- trend_mod_base3 # <<<<<<<<<<<<< ENTER HERE, BIC-SUPPORTED MODEL
+
+## ADD COVARIATES FROM BEST-FIT YEARMOD 
+trend_mod0 <- update(trend_mod_base_RE, formula = ~. + hrs_since_rise_sc + understory_cover_sd_200_sc + odd3)
+summary(trend_mod0)
+
+trend_mod1 <- update(trend_mod_base_RE, formula = ~. +   hrs_since_rise_sc + understory_cover_sd_200_sc + prop_understory_cover_200_sc)
+summary(trend_mod1)
+
+
+anova(trend_mod0, trend_mod1)
+trend_mod_list <- tibble::lst(trend_mod_base_compois, trend_mod_base3, trend_mod_base4, trend_mod0, trend_mod1, trend_mod2, trend_mod3, trend_mod4)
+performance::compare_performance(trend_mod_list, rank = TRUE)
+ggstats::ggcoef_compare(tibble::lst(trend_mod0, trend_mod1))
+
+
+ggstats::ggcoef_table(trend_mod0, intercept = FALSE, table_witdhs = c(2, 1)) + labs(title = "XXX") # make sure no crazy estimates or CI's
+
+
+## [AS NEEDED] HABITAT INTERACTION WITH YEAR-SLOPE
+trend_mod_base_hab50 <- update(trend_mod0, formula = ~.+ yr_sc*hab_type_50_comb)
 summary(trend_mod_base_hab50)
 
-trend_mod_base_hab100 <- update(trend_mod_base_RE, formula = ~.+ yr_c*hab_type_100_comb)
+trend_mod_base_hab100 <- update(trend_mod0, formula = ~.+ yr_sc*hab_type_100_comb)
 summary(trend_mod_base_hab100) # p = 0.043
 
-trend_mod_base_hab200 <- update(trend_mod_base_RE, formula = ~.+ yr_c*hab_type_200_comb)
+trend_mod_base_hab200 <- update(trend_mod_base_RE, formula = ~.+ yr_sc*hab_type_200_comb)
 summary(trend_mod_base_hab200)
 
 
-# Check other distributions
-trend_mod0_compois <- update(trend_mod0, family = "compois", ziformula = ~0, dispformula = ~1, control = glmmTMBControl(parallel = 8))
-summary(trend_mod0_compois)
+### [IF NEEDED] EXPLORE RANDOM EFFECTS
+# Plot correlation btwn location intercept RE & slope RE
+trend_mod <- trend_mod0
 
-performance::compare_performance(tibble::lst(trend_mod0, trend_mod0_compois), rank = TRUE)
-
-trend_mod <- trend_mod3 # ASSIGN THE BEST-FIT MODEL
-
-## [AS NEEDED] ADJUST MODEL AFTER CHECKING DIAGNOSTICS ----
-trend_mod1 <- update(trend_mod, formula = ~. + prop_understory_cover_50_sc)
-summary(trend_mod1)
-
-trend_mod2 <- update(trend_mod, formula = ~. + hrs_since_rise_c)
-summary(trend_mod2)
-
-trend_mod3 <- update(trend_mod, formula = ~. +prop_understory_cover_50_sc + hrs_since_rise_c)
-summary(trend_mod3)
-
-trend_mod4 <- update(trend_mod, formula = ~. +prop_understory_cover_50_sc + hrs_since_rise_c + understory_cover_sd_200_sc)
-summary(trend_mod4)
-
-test <- update(trend_mod, formula = sum_indiv ~ yr_c*hab_type_100_comb + (1 | location_name) + prop_understory_cover_50_sc + hrs_since_rise_c)
-summary(test)
-
-
-trend_mod_list <- tibble::lst(trend_mod_base, trend_mod_base2, trend_mod_base3, trend_mod1, trend_mod2, trend_mod3, trend_mod4)
-performance::compare_performance(trend_mod_list, rank = TRUE)
-ggstats::ggcoef_compare(tibble::lst(trend_mod1, trend_mod3, trend_mod4)) 
-
-### EXPLORE RANDOM EFFECTS ----
-re <-ranef(trend_mod0)[1]$cond$location_name %>%
+re <-ranef(trend_mod)[1]$cond$location_name %>%
   janitor::clean_names()
 re
-ggplot(re, aes(x = intercept, y = yr_c)) + geom_point()
+ggplot(re, aes(x = intercept, y = yr_sc)) + geom_point()
+ggplot(re, aes(intercept)) + geom_histogram()
+ggplot(re, aes(yr_sc)) + geom_histogram()
 
-### ASSIGN TREND_MOD
-trend_mod <- trend_mod3
+### ASSIGN TREND_MOD 
+trend_mod <- trend_mod2_prior
 mod <- trend_mod
 
-### SAVE TRENDMOD RESULTS ----
-saveRDS(trend_mod_list, here::here("tmb_mods", paste0("tmb_", park, "_", spec, "_100m_trendmod_modlist.RDS")))
-saveRDS(trend_mod, here::here("tmb_mods", paste0("tmb_", park, "_", spec, "_100m_trendmod.RDS")))
-saveRDS(mod_dat, here::here("tmb_mods", paste0("tmb_", park, "_", spec, "_100m_trendmod_dat.RDS")))
+### SAVE TRENDMOD RESULTS 
+saveRDS(trend_mod_list, here::here("tmb_mods_FINAL", paste0("tmb_", park, "_", spec, "_100m_trendmod_modlist.RDS")))
+saveRDS(trend_mod, here::here("tmb_mods_FINAL", paste0("tmb_", park, "_", spec, "_100m_trendmod.RDS")))
+saveRDS(mod_dat, here::here("tmb_mods_FINAL", paste0("tmb_", park, "_", spec, "_100m_trendmod_dat.RDS")))
 
-### TRY BRMS ----
-# Figure out how to do best weakly informative priors
-# If it doesn't work, try on personal laptop with cmdstanr
+### BRMS TREND MODEL----
+# Brms can be useful for identifying highly influential points and seeing if those points are responsible for model diagnostic issues.
+mod_dat <- dat
+
 trendmod_brms <- brms::brm(
-  formula = sum_indiv ~ yr_c * hab_type_100_comb + (1 |yr_c_f) + (1 | location_name) + prop_understory_cover_50_sc + I(prop_understory_cover_50_sc^2) + understory_cover_sd_100_sc + 
-    I(understory_cover_sd_100_sc^2) + hrs_since_rise_c + I(hrs_since_rise_c^2) + 
-    perc_opendev_200_sc,
-  data = mod_dat,
+  formula =  sum_indiv ~ yr_sc + (1 | yr_c_f) + (1 + yr_sc|location_name) + hrs_since_rise_sc + perc_forest_100_sc + weather_wind_comb + prop_understory_cover_50_sc,
+  # formula =  sum_indiv ~ yr_sc + (1 | yr_c_f) + (1 + yr_sc ||location_name) + hrs_since_rise_sc + understory_cover_sd_200_sc,
+  # formula =  sum_indiv ~ yr_sc + (1 | yr_c_f) + (1|location_name) + hrs_since_rise_sc + understory_cover_sd_200_sc + weather_wind_comb,
+  # family = brmsfamily("poisson"),
   family = brmsfamily("com_poisson"),
+  prior = c(prior(normal(0,1), class = b)),
   # sample_prior = "only", # <<<<<<<<<<< CHECK PRIORS
-  iter = 4000, warmup = 1000, chains = 4, cores = 4,
-  file = here::here("brms_mods", paste0("brms_", park, "_", spec, "_100m_trendmod.RDS"))
-)
+  data = mod_dat, 
+  iter = 4000, warmup = 1000, chains = 1, cores = 8)
 pp_check(trendmod_brms, ndraws = 500)
+trendmod_brms <- add_criterion(trendmod_brms, criterion = c("loo"))
+
+saveRDS(trendmod_brms, here::here("brms_mods_FINAL", paste0("brms_", park, "_", spec, "_100m_trendmod.RDS"))) # <<<<<
+
+# # If there are INFLUENTIAL POINTS, they are usually the ones that are particularly high or low in early or late years
+(trendmod_loo <- loo(trendmod_brms)) %>% plot(., label_points = TRUE)
+
+saveRDS(trendmod_loo, here::here("brms_mods_FINAL", paste0("brms_", park, "_", spec, "_100m_trendmod_loo.RDS"))) # <<<<
+# dat_loo <- cbind(dat[, c("location_name", "event_date", "sum_indiv")], mod_loo$diagnostics$pareto_k)
+# View(dat_loo)
 
 
 
-### PLOT glmmTMB PREDICTIONS OF FINAL TRENDS MODEL ----
+
+### EVALUATE BRMS models (TRENDMOD_BRMS OR MOD_BRMS) ----
+
+mod_brms = trendmod_brms # <<<<<<<<<
+summary(mod_brms) # slightly shorter summary of model results
+
+rstan::check_hmc_diagnostics(mod_brms$fit)
+bayes_R2(mod_brms)
+
+# Coefficient plot
+mcmc_plot(mod_brms) # quick coefficient plot
+
+# Model convergence check
+plot(mod_brms) # plots showing posterior distribution of parameters, and trace plots
+
+# Posterior predictive checks
+pp_check(mod_brms, type = "stat_2d", ndraws = 200)
+# pp_check(mod_brms, type = "loo_pit_qq", ndraws = 200)
+pp_check(mod_brms, type = "rootogram", ndraws = 200)
+pp_check(mod_brms, type = "bars", ndraws = 200)
+
+
+# pp_check(mod_brms, type = "scatter_avg_grouped", group = "yr_c_f", ndraws = 200) + 
+  # geom_abline(intercept = 0, slope = 1 , color = "red", lty = 2)
+pp_check(mod_brms, type = "bars_grouped", group = "yr_c_f", ndraws = 200)
+pp_check(mod_brms, type = "bars_grouped", group = "location_name", ndraws = 200)
+
+# If categorical predictors...
+pp_check(mod_brms, type = "bars_grouped", group = "weather_wind_comb", ndraws = 200) # <<<<<<<< CHANGE, DEPENDING ON BEST MODEL
+
+pp_check(mod_brms, type = "bars_grouped", group = "odd3", ndraws = 200) # <<<<<<<< CHANGE, DEPENDING ON BEST MODEL
+
+## Plot conditional effects
+# plot(conditional_effects(mod_brms, effects ="understory_cover_sd_200_sc:prop_understory_cover_50_sc", points=TRUE, point_args = list(width = 0.3, height = 0.1, alpha = 0.4)))
+
+# Save conditional effects plots as list, for use with ggplot functions
+(p <- plot(conditional_effects(mod_brms), points=TRUE, point_args = list(width = 0.3, height = 0.1, alpha = 0.4), plot = FALSE))
+
+saveRDS(p, here::here("brms_mods_FINAL", paste0("brms_", park, "_", spec, "_100m_condeffects.RDS"))) # <<<
+saveRDS(p, here::here("brms_mods_FINAL", paste0("brms_", park, "_", spec, "_100m_trendmod_condeffects.RDS"))) # <<<
+
+## DHARMA
+simres <- DHARMa.helpers::dh_check_brms(mod_brms)
+## NOW GO TO DHARMA CODE
+
+### PLOT PREDICTIONS OF FINAL TRENDS MODEL ----
 # Check the estimated trend
-em=emmeans::emtrends(trend_mod, specs = c("yr_c", "hab_type_100_comb"), var = "yr_c") # trends at mean year. Ignores a 'type' argument, it seems
+# em=emmeans::emtrends(trendmod_brms, specs = c("yr_sc", "odd3"), var = c("yr_sc"))
+em=emmeans::emtrends(trendmod_brms, specs = c("yr_sc"), var = "yr_sc") # trends at mean year. Ignores a 'type' argument, it seems
 summary(em, infer=c(TRUE,TRUE),null=0) %>%
   as.data.frame() %>%
   janitor::clean_names() %>%
-  dplyr::mutate(signif = p_value < 0.05)
-
-(temp_tmb_pred <- ggemmeans(trend_mod, terms=c("yr_c", "hab_type_100_comb"), type = "fixed"))
+  dplyr::mutate(signif = sign(lower_hpd) == sign(upper_hpd))
 
 
 ### PLOT TREND WITH YEAR ESTIMATES ----
 tmb_zi_trendmod <- ifelse(trend_mod$modelInfo$allForm$ziformula=="~1", TRUE, FALSE)
 
-(temp_trendmod_mmeans <- ggeffects::predict_response(trend_mod, terms=c("yr_c", "hab_type_100_comb"), margin = "marginalmeans", type = ifelse(tmb_zi_trendmod==TRUE, "zero_inflated", "fixed"))) # this is the same as emmeans. For factors, it weights them equally regardless of how many are actually in each factor level
-    
-(temp_trendmod_mmode <- ggeffects::predict_response(trend_mod, terms=c("yr_c", "hab_type_100_comb"), margin = "mean_mode", type = ifelse(tmb_zi_trendmod==TRUE, "zero_inflated", "fixed")))    
+# (temp_trendmod_mmeans <- ggeffects::predict_response(trend_mod, terms=c("yr_sc", "hab_type_100_comb"), margin = "marginalmeans", type = ifelse(tmb_zi_trendmod==TRUE, "zero_inflated", "fixed"))) # this is the same as emmeans. For factors, it weights them equally regardless of how many are actually in each factor level
+# (temp_trendmod_mmeans <- ggeffects::predict_response(trend_mod, terms=c("yr_sc"), margin = "marginalmeans", type = ifelse(tmb_zi_trendmod==TRUE, "zero_inflated", "fixed")))
 
-temp_trendmod_mmeans %<>% 
+# (temp_trendmod_mmode <- ggeffects::predict_response(trend_mod, terms=c("yr_sc", "hab_type_100_comb"), margin = "mean_mode", type = ifelse(tmb_zi_trendmod==TRUE, "zero_inflated", "fixed")))    
+(temp_trendmod_mmode <- ggeffects::predict_response(trendmod_brms, terms=c("yr_sc"), margin = "mean_mode", type = ifelse(tmb_zi_trendmod==TRUE, "zero_inflated", "fixed")))  
+
+temp_trendmod_mmode %<>% 
   as.data.frame 
 
 FuncFormatTrendDat <- function(pred, dat) {
+  
+  yr_df <- dat %>% dplyr::select(yr, yr_sc) %>% distinct(.)
+  
   pred_out <- pred %>% 
-    as.data.frame()
-  
-  pred_out$yr <- pred_out$x+(range(dat$yr) %>% median())
-  
-
-  pred_out %<>%  
+    as.data.frame() %>%  
     janitor::clean_names() %>%
-    dplyr::mutate(yr_c = as.numeric(x))
+    dplyr::left_join(yr_df, by = c("x" = "yr_sc"))
   
   if("group" %in% names(pred_out)) {
     
@@ -709,7 +720,6 @@ FuncFormatTrendDat <- function(pred, dat) {
       dplyr::select(
         group,
         yr,
-        yr_c,
         trend_predicted = predicted,
         trend_conf_low = conf_low,
         trend_conf_high = conf_high)
@@ -717,7 +727,6 @@ FuncFormatTrendDat <- function(pred, dat) {
     pred_out %<>%
       dplyr::select(
         yr,
-        yr_c,
         trend_predicted = predicted,
         trend_conf_low = conf_low,
         trend_conf_high = conf_high)
@@ -726,24 +735,24 @@ FuncFormatTrendDat <- function(pred, dat) {
   return(pred_out)
 }
 
-tmb_pred_trendmod_mmeans <- FuncFormatTrendDat(pred = temp_trendmod_mmeans, dat)
-# tmb_pred_trendmod_mmode <- FuncFormatTrendDat(pred = temp_trendmod_mmode, dat) # <<<<<<<<<<<<< FIX--THIS ISN'T QUITE RIGHT AS A COMPARISON TO YEARMOD
+# tmb_pred_trendmod_mmeans <- FuncFormatTrendDat(pred = temp_trendmod_mmeans, dat)
+brms_pred_trendmod_mmode <- FuncFormatTrendDat(pred = temp_trendmod_mmode, dat) # <<<<<<<<<<<<< FIX--THIS ISN'T QUITE RIGHT AS A COMPARISON TO YEARMOD
 
 (p <- ggplot() + 
-  geom_errorbar(data = tmb_pred_yearmod, aes(x = yr, y = yr_predicted, ymin = yr_conf_low, ymax = yr_conf_high), width = 0, color = "blue") +
-  geom_point(data = tmb_pred_yearmod, aes(x = yr, y = yr_predicted), size = 2.5, color = "blue") +
-  geom_ribbon( # glmmTMB TREND RESULTS AS RIBBON
-    data = tmb_pred_trendmod_mmeans, aes(x = yr, y = trend_predicted, ymin = trend_conf_low, ymax = trend_conf_high),
-    alpha = 0.1, fill = "orange") +
-  geom_line(data =tmb_pred_trendmod_mmeans, aes(x = yr, y= trend_predicted), color = "orange", linetype = "dashed") +
-  # geom_ribbon(
-  #   data = tmb_pred_trendmod_mmode, aes(x = yr, y = trend_predicted, ymin = trend_conf_low, ymax = trend_conf_high),
-  #   alpha = 0.1, fill = "red") +
-  # geom_line(data =tmb_pred_trendmod_mmode, aes(x = yr, y= trend_predicted), color = "red", linetype = "dashed") +
-  scale_x_continuous(breaks = unique(sort(dat$yr))) +
-  scale_y_continuous(limits = c(0, NA)) +
-  labs(title = paste0("Trends in relative abundance of ", spec, " at ", park), x = "Year", y = "Index of abundance (# of birds/point count)") +
-  theme_bw() +
-  facet_grid(rows = vars(group)))
+    geom_errorbar(data = brms_pred_yearmod, aes(x = yr, y = yr_predicted, ymin = yr_conf_low, ymax = yr_conf_high), width = 0, color = "blue") +
+    geom_point(data = brms_pred_yearmod, aes(x = yr, y = yr_predicted), size = 2.5, color = "blue") +
+    # geom_ribbon( # glmmTMB TREND RESULTS AS RIBBON
+    #   data = tmb_pred_trendmod_mmeans, aes(x = yr, y = trend_predicted, ymin = trend_conf_low, ymax = trend_conf_high),
+    #   alpha = 0.1, fill = "orange") +
+    # geom_line(data =tmb_pred_trendmod_mmeans, aes(x = yr, y= trend_predicted), color = "orange", linetype = "dashed") +
+    geom_ribbon(
+      data = brms_pred_trendmod_mmode, aes(x = yr, y = trend_predicted, ymin = trend_conf_low, ymax = trend_conf_high),
+      alpha = 0.1, fill = "orange") +
+    geom_line(data =brms_pred_trendmod_mmode, aes(x = yr, y= trend_predicted), color = "orange", linetype = "dashed") +
+    scale_x_continuous(breaks = unique(sort(dat$yr))) +
+    scale_y_continuous(limits = c(0, NA)) +
+    labs(title = paste0("Trends in relative abundance of ", spec, " at ", park), subtitle = "(predictors held at mean values)", x = "Year", y = "Index of abundance (# of birds/point count)") +
+    theme_bw() +
+    facet_grid(rows = vars(group)))
 
-saveRDS(p, here::here("tmb_mods", paste0("tmb_", park, "_", spec, "_100m_trendplot.RDS")))
+saveRDS(p, here::here("brms_mods_FINAL", paste0("tmb_", park, "_", spec, "_100m_trendplot.RDS")))
