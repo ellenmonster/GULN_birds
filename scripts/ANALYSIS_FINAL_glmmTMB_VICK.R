@@ -16,7 +16,7 @@ invisible(lapply(pkgs, library, character.only = TRUE))
 ### START ANALYSIS ----
 source(here::here("scripts", "ANALYSIS_STARTUP.R")) # Read in formatted data
 park = "VICK"
-spec = "CARW" # go through each of the top species...
+spec = "ACFL" # go through each of the top species...
 
 dat <- FuncFormatFullObs(park = park, spec = spec, limit_100m = TRUE) 
 

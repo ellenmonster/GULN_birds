@@ -54,10 +54,11 @@ installed_pkgs <- pkgs %in% installed.packages()
 if (length(pkgs[!installed_pkgs]) > 0) install.packages(pkgs[!installed_pkgs], repos = "https://cloud.r-project.org" , dep=TRUE)
 invisible(lapply(pkgs, library, character.only = TRUE))
 
+# options(mc.cores = 4, brms.backend = "cmdstanr")
 ### START ANALYSIS ----
 source(here::here("scripts", "ANALYSIS_STARTUP.R")) # Read in formatted data
 park = "VICK"
-spec = "REVI" # go through each of the top species...
+spec = "BHCO" # go through each of the top species...
 
 # num_species <- 20
 # 
@@ -129,9 +130,9 @@ dat %>% dplyr::group_by(weather_wind_comb) %>% summarize(mean(sum_indiv))
 dat %>% dplyr::group_by(odd3) %>% summarize(mean(sum_indiv))
 dat %>% dplyr::group_by(yr_c_f) %>% summarize(mean(sum_indiv))
 
-# >>>>> Check for covariate patterns that may explain unusually low or high years
-table(dat$yr_c_f, dat$weather_wind_comb)
-table(dat$yr_c_f, dat$odd3)
+# # >>>>> Check for covariate patterns that may explain unusually low or high years
+# table(dat$yr_c_f, dat$weather_wind_comb)
+# table(dat$yr_c_f, dat$odd3)
 
 ### EDA ----
 
@@ -174,7 +175,7 @@ plot(dat_tree)
 
 # Start with Poisson null model
 mod0pois <-glmmTMB(formula = sum_indiv ~ 0 + yr_c_f + (1 | location_name), data = dat, family = poisson)
-performance::check_overdispersion(mod0pois, alternative = "two.sided") # Check for overdispersion. dispersion ratio >1 is overdispersion. Note that the dispersion ratio is calculated by... sum((residuals(mod0pois, type = "pearson"))^2)/df.residual(mod0pois). Statistical signif means to reject equidispersion (i.e., indicates it's overdispersed or underdispersed).
+# performance::check_overdispersion(mod0pois, alternative = "two.sided") # Check for overdispersion. dispersion ratio >1 is overdispersion. Note that the dispersion ratio is calculated by... sum((residuals(mod0pois, type = "pearson"))^2)/df.residual(mod0pois). Statistical signif means to reject equidispersion (i.e., indicates it's overdispersed or underdispersed).
 # performance::check_distribution(mod0pois) # See if negative binomial might be better, or if need zero-inflation
 
 # # # Try NB null model IF it seems appropriate
@@ -183,12 +184,12 @@ performance::check_overdispersion(mod0pois, alternative = "two.sided") # Check f
 
 # Try conway (slower, but use parallel processing)
 mod0comp <- glmmTMB(formula = sum_indiv ~ 0 + yr_c_f + (1 | location_name), data = dat, family="compois", ziformula = ~0, dispformula = ~1, control = glmmTMBControl(parallel = 8))
-summary(mod0comp)
+# summary(mod0comp)
 
 # Zero-inflated Poisson
 mod0pois_zi <-glmmTMB(formula = sum_indiv ~ 0 + yr_c_f + (1 | location_name), data = dat, family = poisson, ziformula = ~1)
-summary(mod0pois_zi)
-plogis(-21.62)
+# summary(mod0pois_zi)
+# plogis(-21.62)
 
 # AICc to compare
 mod_list <- tibble::lst(mod0pois, mod0comp, mod0pois_zi)# mod0nb) #, mod0pois_zi_loc)#, mod0nb)
@@ -196,7 +197,7 @@ performance::compare_performance(mod_list, rank = TRUE, metrics = "common") # CA
 
 # Assign best one to mod0 (prioritize BIC)
 
-mod0 <- mod0comp
+mod0 <- mod0pois
 
 # Add covariates
 
@@ -236,49 +237,49 @@ mod10 <- update(mod0, formula = ~. + odd3)
 summary(mod10) # 
 
 # Compare models
-mod_list <- tibble::lst(mod0, mod1, mod2, mod3, mod4, mod5, mod6, mod7, mod8, mod9) #, mod10) # >>>>> if odd3 is overwhelming, retry it without
+mod_list <- tibble::lst(mod0, mod1, mod2, mod3, mod4, mod5, mod6, mod7, mod8, mod9, mod10) # >>>>> if odd3 is overwhelming, retry it without
 (perf <- performance::compare_performance(mod_list, rank = TRUE, metrics = "common")) # How much variability does the model actually explain?
 
 ## FULL MODEL... ----
 # Include all variables that were statistically signif (or close) in single models OR in partykit, possibly ordered by compare_performance. For each, use the scale that is "most" signif.
 # Include polynomials if signif in regression tree
 
-mod_full <- update(mod0, formula = ~. + odd3 + perc_forest_100_sc + prop_understory_cover_50_sc)
+mod_full <- update(mod0, formula = ~. + odd3 + prop_understory_cover_50_sc + prop_understory_cover_100_sc + perc_opendev_100_sc + understory_cover_sd_100_sc)
+summary(mod_full)
 
 ## NOW SUBSETS REMOVING THE LEAST IMPORTANT ONE BY ONE, THEN IN GROUPS... 
 # remove one at a time, check the model, remove next least important
 # swap out some correlated ones also
 # >> IF ODD3 WAS IMPORTANT, TRY MODELS WITH UNDERSTORY50 QUADRATIC AS SUBSTITUTE
 
-mod_sub1 <- update(mod_full, formula = ~. - weather_temperature_cs)
+mod_sub1 <- update(mod_full, formula = ~. - prop_understory_cover_50_sc)
 summary(mod_sub1)
 
-mod_sub2 <- update(mod_full, formula = ~. - hrs_since_rise_sc - weather_temperature_cs)
+mod_sub2 <- update(mod_full, formula = ~. - prop_understory_cover_50_sc - prop_understory_cover_100_sc)
 summary(mod_sub2)
 
-mod_sub3 <- update(mod_full, formula = ~. - hrs_since_rise_sc)
+mod_sub3 <- update(mod_full, formula = ~. - - prop_understory_cover_50_sc - prop_understory_cover_100_sc - understory_cover_sd_100_sc)
 summary(mod_sub3)
 
-mod_sub4 <- update(mod_full, formula = ~. - understory_cover_sd_100_sc - weather_temperature_cs)
+mod_sub4 <- update(mod_full, formula = ~. - odd3)
 summary(mod_sub4)
 
+
 # >>>> TRY UNDERSTORY PREDICTOR AS ODD3 SUBSTITUTE <<<<
-mod_adj1 <- update(mod_sub1, formula = ~. + prop_understory_cover_50_sc)
+mod_adj1 <- update(mod2, formula = ~. + prop_understory_cover_50_sc)
 summary(mod_adj1)
 
-mod_adj2 <- update(mod_sub1, formula = ~. + prop_understory_cover_50_sc + I(prop_understory_cover_50_sc^2))
+mod_adj2 <- update(mod2, formula = ~. + prop_understory_cover_50_sc + I(prop_understory_cover_50_sc^2))
 summary(mod_adj2)
 
-mod_adj3 <- update(mod_sub1, formula = ~. + odd3)
-summary(mod_adj3)
-
-mod_adj4 <- update(mod_sub1, formula = ~. + odd3 - understory_cover_sd_100_sc)
-summary(mod_adj4)
-
 # >>>>>>>>>>>> TESTER! <<<<<<<<<<<<<<<<<<<<
-mod_list <- tibble::lst(mod2, mod1, mod_full, mod_sub1, mod_sub2, mod_sub3, mod_sub4, mod_adj1, mod_adj2, mod_adj3, mod_adj4)
+mod_list <- tibble::lst(mod2, mod1, mod10, mod_full, mod_sub1, mod_sub2, mod_sub3, mod_sub4, mod_adj1, mod_adj2)
+
+# >>> TRY SIMPLER DISTRIB WITH BEST
+
+# lapply(mod_list, FUN=function(x) {x$call})
 (p <- performance::compare_performance(mod_list, rank = TRUE, metrics = "common"))
-plot(p)
+# plot(p)
 ggstats::ggcoef_compare(tibble::lst(mod_sub1, mod_sub5)) # do this for subset of models
 
 
@@ -298,12 +299,12 @@ ggstats::ggcoef_compare(tibble::lst(mod_sub1, mod_sub5)) # do this for subset of
 
 ### SAVE THE FULL MOD_LIST----
 # Full model list <<<<<<< BRING TOGETHER ALL MOD_LISTS
-mod_list <- tibble::lst(mod0pois, mod0comp, mod0pois_zi, mod0, mod1, mod2, mod3, mod4, mod5, mod6, mod7, mod8, mod9, mod10, mod_full, mod_sub1, mod_sub2, mod_sub3, mod_sub4, mod_adj1, mod_adj2, mod_adj3, mod_adj4) 
+mod_list <- tibble::lst(mod0pois, mod0comp, mod0pois_zi, mod0, mod1, mod2, mod3, mod4, mod5, mod6, mod7, mod8, mod9, mod10, mod_full, mod_sub1, mod_sub2, mod_sub3, mod_sub4, mod_adj1, mod_adj2) 
 # (p <- performance::compare_performance(mod_list, rank = TRUE))
 saveRDS(mod_list, here::here("tmb_mods_FINAL", paste0("tmb_", park, "_", spec, "_100m_yearmod_modlist.RDS")))
 
 ### SAVE THE FINAL 100M 2-VISIT YEAR MODEL----
-year_mod <- mod_adj4 # <<<<<<<<<
+year_mod <- mod2 #mod_adj1 # <<<<<<<<<
 mod_dat <- dat 
 
 saveRDS(year_mod, here::here("tmb_mods_FINAL", paste0("tmb_", park, "_", spec, "_100m_yearmod.RDS")))
@@ -414,7 +415,7 @@ DHARMa::plotResiduals(simres, mod_dat$weather_temperature_cs, rank  = FALSE)
 DHARMa::plotResiduals(simres, mod_dat$julian_prop_sc, rank  = FALSE)
 DHARMa::plotResiduals(simres, mod_dat$hrs_since_rise_sc, rank  = FALSE)
 DHARMa::plotResiduals(simres, mod_dat$researcher, rank  = FALSE)
-DHARMa::plotResiduals(simres, mod_dat$first_yr, rank  = FALSE)
+# DHARMa::plotResiduals(simres, mod_dat$first_yr, rank  = FALSE)
 
 # If there are diagnostic problems below, not a big deal--unless a lot of problems with clear trends
 DHARMa::plotResiduals(simres, mod_dat$perc_forest_50, rank  = FALSE)
@@ -441,8 +442,8 @@ plotly::ggplotly(ggplot(dat_append, aes(x=understory_cover_sd_100, y = scaled_re
 # ggeffects::predict_response(mod, terms = c("yr_c_f", "subunit"), margin = "mean_reference", type = "zero_inflated")) # > Note that to get emmeans, 'margin = "marginalmeans"' but then can't do zero-inflation with that
 # (temp_tmb_pred_yearmod <- ggemmeans(mod_tmb_yearmod, terms=c("yr_c_f"), type = "fixed") %>% # # type = ifelse(tmb_zi==TRUE, "fe.zi", "fixed"))) #### ZERO-INFLATION PART DOESN' WORK!!!
 
-year_mod_zi <- ifelse(year_mod$modelInfo$allForm$ziformula=="~1", TRUE, FALSE)
-
+# year_mod_zi <- ifelse(year_mod$modelInfo$allForm$ziformula=="~1", TRUE, FALSE)
+year_mod_zi <- FALSE
 # tmb_pred_yearmod <- ggpredict(year_mod, terms=c("yr_c_f"), type = ifelse(year_mod_zi==TRUE, "zero_inflated", "fixed")) # This is same as below
 
 # # CHeck interaction effects!! [IF APPLICABLE]
@@ -450,7 +451,7 @@ year_mod_zi <- ifelse(year_mod$modelInfo$allForm$ziformula=="~1", TRUE, FALSE)
 # saveRDS(tmb_pred_yearmod_interact, here::here("tmb_mods_FINAL", paste0("tmb_", park, "_", spec, "_100m_yearmod_interaction_plot.RDS")))
 
 # Check year estimates
-(brms_pred_yearmod <- ggeffects::predict_response(yearmod_brms, terms=c("yr_c_f [all]", "odd3"), margin = "mean_mode", type = ifelse(year_mod_zi==TRUE, "zero_inflated", "fixed")))
+(brms_pred_yearmod <- ggeffects::predict_response(yearmod_brms, terms=c("yr_c_f [all]"), margin = "mean_mode", type = ifelse(year_mod_zi==TRUE, "zero_inflated", "fixed")))
 
 (brms_pred_yearmod %<>% 
    as.data.frame() %>%
@@ -464,29 +465,46 @@ year_mod_zi <- ifelse(year_mod$modelInfo$allForm$ziformula=="~1", TRUE, FALSE)
       yr_conf_high = conf_high))
 brms_pred_yearmod$yr <- brms_pred_yearmod$yr_c+(range(dat$yr) %>% median())
 
-ggplot(data = brms_pred_yearmod) + 
-  geom_errorbar(
-    mapping = aes(x = yr, y = yr_predicted, ymin = yr_conf_low, ymax = yr_conf_high, color = group), width = 0) +
-  geom_point(
-    mapping = aes(x = yr, y = yr_predicted, color = group), size = 2.5) +
+p_year <- ggplot() + 
+  geom_errorbar(data = brms_pred_yearmod, aes(x = yr, y = yr_predicted, ymin = yr_conf_low, ymax = yr_conf_high), width = 0, color = "blue") +
+  geom_point(data = brms_pred_yearmod, aes(x = yr, y = yr_predicted), size = 2.5, color = "blue") +
+  scale_x_continuous(breaks = unique(sort(dat$yr))) +
+  scale_y_continuous(limits = c(0, NA)) +
+  labs(title = paste0("Trends in relative abundance of ", spec, " at ", park), subtitle = "(predictors held at mean values)", x = "Year", y = "Index of abundance (# of birds/point count)") +
+  theme_bw() +
   facet_grid(rows = vars(group))
+
+saveRDS(p_year, here::here("brms_mods_FINAL", paste0("tmb_", park, "_", spec, "_100m_trendplot.RDS"))) 
 
 
 ### BRMS YEAR MODEL----
 
-mod_dat <- dat
+# drop_dat <- dat %>% dplyr::filter(!location_name %in% c("VF36"))
 
+# FOR ALL ZERO'S
+sep_priors <- c(set_prior("normal(0, 1)", class = "b"),
+                set_prior("normal(-1.5, 1.5)", class = "b", coef = "odd3odd3_locs"))
+, # this sets odd3 counts to very close to zero and is NOT appropriate when odd3 counts are HIGHER than other locs
+                set_prior("normal(-1.5, 1.5)", class = "b", coef = "weather_wind_combwindy")) 
+
+# FOR MILD REDUCTION
 reg_priors <- c(set_prior("normal(0, 1)", class = "b"),
-                set_prior("normal(-1.5, 1.5)", class = "b", coef = "odd3odd3_locs")) # this sets odd3 counts to very close to zero and is NOT appropriate when odd3 counts are HIGHER than other locs
+                set_prior("normal(-1, 1)", class = "b", coef = "odd3odd3_locs"))
+
+# FOR MILD INCREASE
+reg_priors_incr <- c(set_prior("normal(0, 1)", class = "b"),
+                set_prior("normal(1, 1)", class = "b", coef = "odd3odd3_locs"))
 
 yearmod_brms <- brms::brm(
-  formula = sum_indiv ~ yr_c_f + (1 | location_name) + hrs_since_rise_sc + perc_forest_100_sc + odd3,
+  formula = sum_indiv ~ yr_c_f + (1 | location_name) + perc_opendev_100,
   data = mod_dat,
-  # family = brmsfamily("poisson"),
-  family = brmsfamily("com_poisson"),
-  prior = reg_priors,
-  # prior = c(prior(normal(0, 1), class = b)),
+  # data = drop_dat,
+  family = brmsfamily("poisson"), # <<<<<<<<<<
+  # family = brmsfamily("com_poisson"), # <<<<<<<<
+  # prior = reg_priors,
+  prior = c(prior(normal(0, 1), class = b)),
   # sample_prior = "only", # <<<<<<<<<<< CHECK PRIORS
+  # control = list(adapt_delta = .95),
   iter = 4000, warmup = 1000, chains = 4, cores = 8)
 
 summary(yearmod_brms)
@@ -622,13 +640,31 @@ saveRDS(mod_dat, here::here("tmb_mods_FINAL", paste0("tmb_", park, "_", spec, "_
 # Brms can be useful for identifying highly influential points and seeing if those points are responsible for model diagnostic issues.
 mod_dat <- dat
            
+# FOR ALL ZERO'S
+sep_priors <- c(set_prior("normal(0, 1)", class = "b"),
+                set_prior("normal(-1.5, 1.5)", class = "b", coef = "odd3odd3_locs"))
+, # this sets odd3 counts to very close to zero and is NOT appropriate when odd3 counts are HIGHER than other locs
+set_prior("normal(-1.5, 1.5)", class = "b", coef = "weather_wind_combwindy")) 
+
+# FOR MILD REDUCTION
+reg_priors <- c(set_prior("normal(0, 1)", class = "b"),
+                set_prior("normal(-1, 1)", class = "b", coef = "odd3odd3_locs"))
+
+
+# FOR MILD INCREASE
+reg_priors_incr <- c(set_prior("normal(0, 1)", class = "b"),
+                     set_prior("normal(1, 1)", class = "b", coef = "odd3odd3_locs"))
+
+
 trendmod_brms <- brms::brm(
-  formula =  sum_indiv ~ yr_sc + (1 | yr_c_f) + (1 + yr_sc|location_name) + hrs_since_rise_sc + perc_forest_100_sc + odd3,
+  formula =  sum_indiv ~ yr_sc + (1 | yr_c_f) + (1 + yr_sc|location_name) + perc_opendev_100_sc,
   # formula =  sum_indiv ~ yr_sc + (1 | yr_c_f) + (1 + yr_sc ||location_name) + hrs_since_rise_sc + understory_cover_sd_200_sc,
   # formula =  sum_indiv ~ yr_sc + (1 | yr_c_f) + (1|location_name) + hrs_since_rise_sc + understory_cover_sd_200_sc + weather_wind_comb,
-  # family = brmsfamily("poisson"),
-  family = brmsfamily("com_poisson"),
-  prior = reg_priors,
+  family = brmsfamily("poisson"),
+  # family = brmsfamily("com_poisson"), # <<<<<<<<<<<<<
+  # prior = reg_priors,
+  control = list(adapt_delta = 0.9),
+  prior = c(prior(normal(0, 1), class = b)),
   # sample_prior = "only", # <<<<<<<<<<< CHECK PRIORS
   data = mod_dat, 
   iter = 4000, warmup = 1000, chains = 4, cores = 8)
@@ -650,7 +686,8 @@ View(dat_loo)
 
 ### EVALUATE BRMS models (TRENDMOD_BRMS OR MOD_BRMS) ----
 
-mod_brms = trendmod_brms # <<<<<<<<<
+mod_brms <- trendmod_brms # <<<<<<<<<
+mod_brms <- yearmod_brms
 summary(mod_brms) # slightly shorter summary of model results
 
 rstan::check_hmc_diagnostics(mod_brms$fit)
@@ -675,10 +712,9 @@ pp_check(mod_brms, type = "bars_grouped", group = "yr_c_f", ndraws = 200)
 pp_check(mod_brms, type = "bars_grouped", group = "location_name", ndraws = 200)
 pp_check(mod_brms, type = "bars_grouped", group = "odd3", ndraws = 200)
 
-# If categorical predictors...
+# If other categorical predictors...
 pp_check(mod_brms, type = "bars_grouped", group = "weather_wind_comb", ndraws = 200) # <<<<<<<< CHANGE, DEPENDING ON BEST MODEL
 
-pp_check(mod_brms, type = "bars_grouped", group = "odd3", ndraws = 200) # <<<<<<<< CHANGE, DEPENDING ON BEST MODEL
 
 ## Plot conditional effects
 # plot(conditional_effects(mod_brms, effects ="understory_cover_sd_200_sc:prop_understory_cover_50_sc", points=TRUE, point_args = list(width = 0.3, height = 0.1, alpha = 0.4)))
@@ -686,8 +722,8 @@ pp_check(mod_brms, type = "bars_grouped", group = "odd3", ndraws = 200) # <<<<<<
 # Save conditional effects plots as list, for use with ggplot functions
 (p <- plot(conditional_effects(mod_brms), points=TRUE, point_args = list(width = 0.3, height = 0.1, alpha = 0.4), plot = FALSE))
 
-# saveRDS(p, here::here("brms_mods_FINAL", paste0("brms_", park, "_", spec, "_100m_condeffects.RDS"))) # <<<
-saveRDS(p, here::here("brms_mods_FINAL", paste0("brms_", park, "_", spec, "_100m_trendmod_condeffects.RDS"))) # <<<
+# saveRDS(p, here::here("brms_mods_FINAL", paste0("brms_", park, "_", spec, "_100m_condeffects.RDS"))) # <<<<<<
+saveRDS(p, here::here("brms_mods_FINAL", paste0("brms_", park, "_", spec, "_100m_trendmod_condeffects.RDS"))) # <<<<<
 
 ## DHARMA
 simres <- DHARMa.helpers::dh_check_brms(mod_brms)
@@ -704,13 +740,15 @@ summary(em, infer=c(TRUE,TRUE),null=0) %>%
 
 
 ### PLOT TREND WITH YEAR ESTIMATES ----
-tmb_zi_trendmod <- ifelse(trend_mod$modelInfo$allForm$ziformula=="~1", TRUE, FALSE)
+# tmb_zi_trendmod <- ifelse(trend_mod$modelInfo$allForm$ziformula=="~1", TRUE, FALSE)
+
+tmb_zi_trendmod <- FALSE # <<< CHANGE IF ZERO INFLATION MODEL
 
 # (temp_trendmod_mmeans <- ggeffects::predict_response(trend_mod, terms=c("yr_sc", "hab_type_100_comb"), margin = "marginalmeans", type = ifelse(tmb_zi_trendmod==TRUE, "zero_inflated", "fixed"))) # this is the same as emmeans. For factors, it weights them equally regardless of how many are actually in each factor level
 # (temp_trendmod_mmeans <- ggeffects::predict_response(trend_mod, terms=c("yr_sc"), margin = "marginalmeans", type = ifelse(tmb_zi_trendmod==TRUE, "zero_inflated", "fixed")))
 
 # (temp_trendmod_mmode <- ggeffects::predict_response(trend_mod, terms=c("yr_sc", "hab_type_100_comb"), margin = "mean_mode", type = ifelse(tmb_zi_trendmod==TRUE, "zero_inflated", "fixed")))    
-(temp_trendmod_mmode <- ggeffects::predict_response(trendmod_brms, terms=c("yr_sc", "odd3"), margin = "mean_mode", type = ifelse(tmb_zi_trendmod==TRUE, "zero_inflated", "fixed")))  
+(temp_trendmod_mmode <- ggeffects::predict_response(trendmod_brms, terms=c("yr_sc"), margin = "mean_mode", type = ifelse(tmb_zi_trendmod==TRUE, "zero_inflated", "fixed")))  
 
 temp_trendmod_mmode %<>% 
   as.data.frame 
