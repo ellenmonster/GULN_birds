@@ -1,0 +1,93 @@
+---
+title: "GULN Birds - VICK PLOTS"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    df_print: kable
+    fig_caption: yes
+    self_contained: yes
+    highlight: haddock
+    keep_md: yes
+    smart: no
+    theme: journal
+    number_sections: yes
+    toc: no
+
+---
+
+```{r setup, include = FALSE}
+rm(list=ls())
+pkgs <- c("tidyverse", "knitr", "DT")
+installed_pkgs <- pkgs %in% installed.packages()
+if (length(pkgs[!installed_pkgs]) > 0) install.packages(pkgs[!installed_pkgs], repos = "https://cloud.r-project.org" , dep=TRUE)
+invisible(lapply(pkgs, library, character.only = TRUE))
+
+knitr::opts_chunk$set(
+  echo = FALSE, 
+  warning = FALSE, 
+  message = FALSE, 
+  out.width = "100%", 
+  cache = FALSE, 
+  tidy = TRUE)
+```
+
+```{r import_format}
+### Import plots ----
+
+trendplots_vec <- list.files(path = here::here("VICK_plots"), pattern = "trendplot.RDS", full.names = TRUE)
+
+plots_list <- lapply(trendplots_vec, FUN = function(x) readRDS(x))
+```
+
+<span style="font-size:14px; color:blue; font-weight:bold;">
+VICK data have been filtered in the following ways for improved analyses:
+</span>
+<br>
+<br>
+1. Only including actively surveyed locations, i.e., locations retained since the 2018 protocol peer review.
+<br>
+<br>
+2. Only including detections within 100m., to standardize survey area over time and space (habitat types)
+<br>
+<br>
+3. Only using Daniel's data and only data since (and including) 2012 to avoid additional covariate of researchers who conducted minimal surveys. Also to avoid the odd timing of 5 surveys (the yr_visits had long timespans that overlapped each other) in 2010.
+<br>
+<br>
+4. Compared to prior analyses, modified some of the covariates considered. Dropped the categorical "habitat type" and instead calculated "% forest cover" and "% open/developed" to use as covariates. Primarily focused on covariates measured at the 100-m scale, to match the survey area.
+<br>
+<br>
+5. Switched to Bayesian analyses with priors, due to many difficulties getting models to converge, especially when trying to do trend analyses with the full random effects structure.
+<br>
+<br>
+<br>
+<br>
+<span style="font-size:14px; color:blue; font-weight:bold;">
+Things to discuss/decide about these VICK analyses before running N-mixture models:
+</span>
+<br>
+<br>
+1. Three sites (VO08, VF36, VM07) seem to be very 'different' for birds, in a way that is not captured by the current covariates. For many species, I was able to get models to pass all/most diagnostic tests only when I included a 2-level covariate that distinguished whether the count came from one of these three sites or not (ODD3 covariate).
+<br>
+<br>
+2. What does the LiDAR measure of understory cover & understory sd mean when part of the area is trails or otherwise developed? Are those developed areas excluded from measurement, or are they measured in exactly the same way as forest understory?
+<br>
+<br>
+<br>
+<br>
+<span style="font-size:14px; color:blue; font-weight:bold;">
+Species-specific trend plots with individual year estimates of relative abundance:
+</span>
+<br>
+<br>
+1. Only including successful-ish models; in some cases, year estimates are available but a trend model could not be adequately fit
+<br>
+<br>
+2. For species in which ODD3 was a significant covariate, separate estimates are provided for ODD3 and all other sites
+<br>
+<br>
+3. Other significant predictors (e.g., wind, time-since-sunrise, etc.) are held at their mean values
+<br>
+<br>
+```{r}
+plots_list
+```
