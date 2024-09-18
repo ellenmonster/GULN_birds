@@ -81,7 +81,30 @@ dat_list <- reactiveValues(df_finaldat = NULL, df_locs = NULL, df_buffer_info = 
 
 # Read in the files that won't change for raw vs. analysis data
 maps_list <- readRDS(here::here("Data_out", "maps_list.RDS"))
-dat_list$df_locs <- readRDS(here::here("Data_out", "df_locs.RDS")) # site locations
+
+
+df_locs <- readRDS(here::here("Data_out", "df_locs.RDS")) # site locations
+# TEMP HACK FIX <<<<<<<<<<<<<<<<<<<<<<<<<
+df_locs$hab_type_200[df_locs$hab_type_200 != "forest"] <- "non_forest"
+df_locs$hab_type_100[df_locs$hab_type_100 != "forest"] <- "non_forest"
+df_locs$hab_type_50[df_locs$hab_type_50 != "forest"] <- "non_forest"
+
+df_locs$dom_hab_200[df_locs$dom_hab_200 != "forest"] <- "non_forest"
+df_locs$dom_hab_100[df_locs$dom_hab_100 != "forest"] <- "non_forest"
+df_locs$dom_hab_50[df_locs$dom_hab_50 != "forest"] <- "non_forest"
+
+# FIX VICK HABITAT INFORMATION BECAUSE VEGETATION SHAPEFILE IS OUTDATED <<<<<<<<<<<<<<<<<<<<<<<<<<<< NEED AN UPDATED VEGETATION SHAPEFILE--THIS IS JUST A TEMPORARY HACK FIX
+
+df_locs$perc_forest_100[df_locs$location_name %in% c("VF36", "VF42", "VM07")] <- c(0.06, 0.20, 0.15)
+df_locs$perc_opendev_100[df_locs$location_name %in% c("VF36", "VF42", "VM07")] <- c(0.87, 0.31, 0.85)
+df_locs$hab_type_100[df_locs$location_name %in% c("VF36", "VF42", "VM07")] <- "non_forest"
+
+df_locs$perc_forest_50[df_locs$location_name %in% c("VF36", "VF42", "VM07")] <- c(0, 0.05, 0.05)
+df_locs$perc_opendev_50[df_locs$location_name %in% c("VF36", "VF42", "VM07")] <- c(0.93, 0.15, 0.86)
+df_locs$hab_type_50[df_locs$location_name %in% c("VF36", "VF42", "VM07")] <- "non_forest"
+dat_list$df_locs <- df_locs
+
+
 dat_list$df_buffer_info <- readRDS(here::here("Data_out", "df_buffer_info.RDS")) # info on habitat within various distances from survey point center
 
 
@@ -453,9 +476,7 @@ FuncYrLinePlotly <- function(dat, color_by, line_by, line_type) {
   col_pal = c(
     forest = "#43a332",
     shrub = "lightgreen",
-    mixed = "blue",
-    open_developed = "brown",
-    other = "gray"
+    non_forest = "brown"
   )
     
 
@@ -1281,7 +1302,8 @@ output$table_physiog <- DT::renderDT({
     options = list(searching = FALSE, pageLength = -1, lengthChange = FALSE, paging = FALSE)) %>% 
       formatStyle("habitat",
                   target = "row", 
-                  backgroundColor = styleEqual(c("forest", "open", "shrub", "developed", "mixed"), c("lightgreen", "lightblue", "lightyellow", "lightbrown", "lightgray"))
+                  backgroundColor = styleEqual(c("forest", "non_forest"), c("lightgreen", "lightbrown"))
+                  # backgroundColor = styleEqual(c("forest", "open", "shrub", "developed", "mixed"), c("lightgreen", "lightblue", "lightyellow", "lightbrown", "lightgray"))
                   )
   })
 

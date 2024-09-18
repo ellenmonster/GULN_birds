@@ -103,19 +103,19 @@ dom_hab_50 <- df_buffer_info %>%
   dplyr::filter(buffer_m == 50) %>%
   dplyr::select(location_name, dom_hab_50 = dom_hab, dom_hab_prop_50 = dom_hab_prop, perc_forest_50 = perc_forest, perc_opendev_50 = perc_opendev) %>%
   dplyr::mutate(
-    hab_type_50 = ifelse(dom_hab_prop_50 >= 60, dom_hab_50, "mixed"))
+    hab_type_50 = ifelse(dom_hab_prop_50 >= 66.66, dom_hab_50, "mixed"))
 
 dom_hab_100 <- df_buffer_info %>%
   dplyr::filter(buffer_m == 100) %>%
   dplyr::select(location_name, dom_hab_100 = dom_hab, dom_hab_prop_100 = dom_hab_prop, perc_forest_100 = perc_forest, perc_opendev_100 = perc_opendev) %>%
   dplyr::mutate(
-    hab_type_100 = ifelse(dom_hab_prop_100 >= 60, dom_hab_100, "mixed"))
+    hab_type_100 = ifelse(dom_hab_prop_100 >= 66.66, dom_hab_100, "mixed"))
 
 dom_hab <- df_buffer_info %>%
   dplyr::filter(buffer_m == 200) %>%
   dplyr::select(location_name, dom_hab_200 = dom_hab, dom_hab_prop_200 = dom_hab_prop, perc_forest_200 = perc_forest, perc_opendev_200 = perc_opendev) %>%
   dplyr::mutate(
-    hab_type_200 = ifelse(dom_hab_prop_200 >= 60, dom_hab_200, "mixed")
+    hab_type_200 = ifelse(dom_hab_prop_200 >= 66.66, dom_hab_200, "mixed")
   ) %>%
   dplyr::full_join(dom_hab_50, by = "location_name") %>%
   dplyr::full_join(dom_hab_100, by = "location_name")

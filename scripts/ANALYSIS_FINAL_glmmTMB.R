@@ -57,7 +57,7 @@ invisible(lapply(pkgs, library, character.only = TRUE))
 ### START ANALYSIS ----
 source(here::here("scripts", "ANALYSIS_STARTUP.R")) # Read in formatted data
 park = "VICK"
-spec = "ACFL" # go through each of the top species...
+spec = "REVI" # go through each of the top species...
 
 # num_species <- 20
 # 
@@ -243,8 +243,7 @@ mod_list <- tibble::lst(mod0, mod1, mod2, mod3, mod4, mod5, mod6, mod7, mod8, mo
 # Include all variables that were statistically signif (or close) in single models OR in partykit, possibly ordered by compare_performance. For each, use the scale that is "most" signif.
 # Include polynomials if signif in regression tree
 
-mod_full <- update(mod0, formula = ~. + hrs_since_rise_sc + perc_opendev_100_sc + weather_temperature_cs + understory_cover_sd_100_sc)
-summary(mod_full)
+mod_full <- update(mod0, formula = ~. + odd3 + perc_forest_100_sc + prop_understory_cover_50_sc)
 
 ## NOW SUBSETS REMOVING THE LEAST IMPORTANT ONE BY ONE, THEN IN GROUPS... 
 # remove one at a time, check the model, remove next least important
@@ -451,7 +450,7 @@ year_mod_zi <- ifelse(year_mod$modelInfo$allForm$ziformula=="~1", TRUE, FALSE)
 # saveRDS(tmb_pred_yearmod_interact, here::here("tmb_mods_FINAL", paste0("tmb_", park, "_", spec, "_100m_yearmod_interaction_plot.RDS")))
 
 # Check year estimates
-(brms_pred_yearmod <- ggeffects::predict_response(mod_brms, terms=c("yr_c_f [all]"), margin = "mean_mode", type = ifelse(year_mod_zi==TRUE, "zero_inflated", "fixed")))
+(brms_pred_yearmod <- ggeffects::predict_response(yearmod_brms, terms=c("yr_c_f [all]", "odd3"), margin = "mean_mode", type = ifelse(year_mod_zi==TRUE, "zero_inflated", "fixed")))
 
 (brms_pred_yearmod %<>% 
    as.data.frame() %>%
@@ -477,27 +476,36 @@ ggplot(data = brms_pred_yearmod) +
 
 mod_dat <- dat
 
-mod_brms <- brms::brm(
-  formula = sum_indiv ~ yr_c_f + (1 | location_name) + hrs_since_rise_sc + perc_forest_100_sc + weather_wind_comb + prop_understory_cover_50_sc,
+reg_priors <- c(set_prior("normal(0, 1)", class = "b"),
+                set_prior("normal(-1.5, 1.5)", class = "b", coef = "odd3odd3_locs")) # this sets odd3 counts to very close to zero and is NOT appropriate when odd3 counts are HIGHER than other locs
+
+yearmod_brms <- brms::brm(
+  formula = sum_indiv ~ yr_c_f + (1 | location_name) + hrs_since_rise_sc + perc_forest_100_sc + odd3,
   data = mod_dat,
   # family = brmsfamily("poisson"),
   family = brmsfamily("com_poisson"),
-  prior = c(prior(normal(0,1), class = b)),
+  prior = reg_priors,
+  # prior = c(prior(normal(0, 1), class = b)),
   # sample_prior = "only", # <<<<<<<<<<< CHECK PRIORS
-  iter = 4000, warmup = 1000, chains = 1, cores = 8)
+  iter = 4000, warmup = 1000, chains = 4, cores = 8)
 
-pp_check(mod_brms, ndraws = 500)
+summary(yearmod_brms)
 
-mod_brms <- add_criterion(mod_brms, criterion = c("loo"))
+pp_check(yearmod_brms, ndraws = 500)
+pp_check(yearmod_brms, type = "bars_grouped", group = "odd3", ndraws = 200)
 
-saveRDS(mod_brms, here::here("brms_mods_FINAL", paste0("brms_", park, "_", spec, "_100m_yearmod.RDS"))) # <<<<<
+
+yearmod_brms <- add_criterion(yearmod_brms, criterion = c("loo"))
+
+saveRDS(yearmod_brms, here::here("brms_mods_FINAL", paste0("brms_", park, "_", spec, "_100m_yearmod.RDS"))) # <<<<<
 
 # # If there are INFLUENTIAL POINTS, they are usually the ones that are particularly high or low in early or late years
-(mod_loo <- loo(mod_brms)) %>% plot(., label_points = TRUE)
+(yearmod_loo <- loo(yearmod_brms)) %>% plot(., label_points = TRUE)
 
-saveRDS(mod_loo, here::here("brms_mods_FINAL", paste0("brms_", park, "_", spec, "_100m_yearmod_loo.RDS"))) # <<<<
-# dat_loo <- cbind(dat[, c("location_name", "event_date", "sum_indiv")], mod_loo$diagnostics$pareto_k)
-# View(dat_loo)
+saveRDS(yearmod_loo, here::here("brms_mods_FINAL", paste0("brms_", park, "_", spec, "_100m_yearmod_loo.RDS"))) # <<<<
+
+dat_loo <- cbind(dat[, c("location_name", "event_date", "sum_indiv")], yearmod_loo$diagnostics$pareto_k)
+View(dat_loo)
 
 
 ### GLMMTMB TREND MODELS ----
@@ -613,17 +621,17 @@ saveRDS(mod_dat, here::here("tmb_mods_FINAL", paste0("tmb_", park, "_", spec, "_
 ### BRMS TREND MODEL----
 # Brms can be useful for identifying highly influential points and seeing if those points are responsible for model diagnostic issues.
 mod_dat <- dat
-
+           
 trendmod_brms <- brms::brm(
-  formula =  sum_indiv ~ yr_sc + (1 | yr_c_f) + (1 + yr_sc|location_name) + hrs_since_rise_sc + perc_forest_100_sc + weather_wind_comb + prop_understory_cover_50_sc,
+  formula =  sum_indiv ~ yr_sc + (1 | yr_c_f) + (1 + yr_sc|location_name) + hrs_since_rise_sc + perc_forest_100_sc + odd3,
   # formula =  sum_indiv ~ yr_sc + (1 | yr_c_f) + (1 + yr_sc ||location_name) + hrs_since_rise_sc + understory_cover_sd_200_sc,
   # formula =  sum_indiv ~ yr_sc + (1 | yr_c_f) + (1|location_name) + hrs_since_rise_sc + understory_cover_sd_200_sc + weather_wind_comb,
   # family = brmsfamily("poisson"),
   family = brmsfamily("com_poisson"),
-  prior = c(prior(normal(0,1), class = b)),
+  prior = reg_priors,
   # sample_prior = "only", # <<<<<<<<<<< CHECK PRIORS
   data = mod_dat, 
-  iter = 4000, warmup = 1000, chains = 1, cores = 8)
+  iter = 4000, warmup = 1000, chains = 4, cores = 8)
 pp_check(trendmod_brms, ndraws = 500)
 trendmod_brms <- add_criterion(trendmod_brms, criterion = c("loo"))
 
@@ -633,8 +641,9 @@ saveRDS(trendmod_brms, here::here("brms_mods_FINAL", paste0("brms_", park, "_", 
 (trendmod_loo <- loo(trendmod_brms)) %>% plot(., label_points = TRUE)
 
 saveRDS(trendmod_loo, here::here("brms_mods_FINAL", paste0("brms_", park, "_", spec, "_100m_trendmod_loo.RDS"))) # <<<<
-# dat_loo <- cbind(dat[, c("location_name", "event_date", "sum_indiv")], mod_loo$diagnostics$pareto_k)
-# View(dat_loo)
+
+dat_loo <- cbind(dat[, c("location_name", "event_date", "sum_indiv")], mod_loo$diagnostics$pareto_k)
+View(dat_loo)
 
 
 
@@ -664,6 +673,7 @@ pp_check(mod_brms, type = "bars", ndraws = 200)
   # geom_abline(intercept = 0, slope = 1 , color = "red", lty = 2)
 pp_check(mod_brms, type = "bars_grouped", group = "yr_c_f", ndraws = 200)
 pp_check(mod_brms, type = "bars_grouped", group = "location_name", ndraws = 200)
+pp_check(mod_brms, type = "bars_grouped", group = "odd3", ndraws = 200)
 
 # If categorical predictors...
 pp_check(mod_brms, type = "bars_grouped", group = "weather_wind_comb", ndraws = 200) # <<<<<<<< CHANGE, DEPENDING ON BEST MODEL
@@ -676,7 +686,7 @@ pp_check(mod_brms, type = "bars_grouped", group = "odd3", ndraws = 200) # <<<<<<
 # Save conditional effects plots as list, for use with ggplot functions
 (p <- plot(conditional_effects(mod_brms), points=TRUE, point_args = list(width = 0.3, height = 0.1, alpha = 0.4), plot = FALSE))
 
-saveRDS(p, here::here("brms_mods_FINAL", paste0("brms_", park, "_", spec, "_100m_condeffects.RDS"))) # <<<
+# saveRDS(p, here::here("brms_mods_FINAL", paste0("brms_", park, "_", spec, "_100m_condeffects.RDS"))) # <<<
 saveRDS(p, here::here("brms_mods_FINAL", paste0("brms_", park, "_", spec, "_100m_trendmod_condeffects.RDS"))) # <<<
 
 ## DHARMA
@@ -700,7 +710,7 @@ tmb_zi_trendmod <- ifelse(trend_mod$modelInfo$allForm$ziformula=="~1", TRUE, FAL
 # (temp_trendmod_mmeans <- ggeffects::predict_response(trend_mod, terms=c("yr_sc"), margin = "marginalmeans", type = ifelse(tmb_zi_trendmod==TRUE, "zero_inflated", "fixed")))
 
 # (temp_trendmod_mmode <- ggeffects::predict_response(trend_mod, terms=c("yr_sc", "hab_type_100_comb"), margin = "mean_mode", type = ifelse(tmb_zi_trendmod==TRUE, "zero_inflated", "fixed")))    
-(temp_trendmod_mmode <- ggeffects::predict_response(trendmod_brms, terms=c("yr_sc"), margin = "mean_mode", type = ifelse(tmb_zi_trendmod==TRUE, "zero_inflated", "fixed")))  
+(temp_trendmod_mmode <- ggeffects::predict_response(trendmod_brms, terms=c("yr_sc", "odd3"), margin = "mean_mode", type = ifelse(tmb_zi_trendmod==TRUE, "zero_inflated", "fixed")))  
 
 temp_trendmod_mmode %<>% 
   as.data.frame 

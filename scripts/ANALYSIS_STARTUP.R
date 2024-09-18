@@ -16,41 +16,22 @@ df_full_obs <- readRDS(here::here("Data_out", "df_full_obs.RDS")) %>%
   dplyr::select(-observer) # For each survey event, this is the total number of individuals detected per species. Includes the zero's
 df_finaldat <- readRDS(here::here("Data_out", "df_finaldat.RDS")) # This is the actual count data, with time bin, distance bin, etc. for each obs. DOES NOT INCLUDE THE ZERO-COUNTS.
 
+# FOR HABITAT TYPE IN DF_LOCS, CHANGE NON-FOREST HABITATS TO SIMPLY 'NON_FOREST'
+
+df_locs$hab_type_200[df_locs$hab_type_200 != "forest"] <- "non_forest"
+df_locs$hab_type_100[df_locs$hab_type_100 != "forest"] <- "non_forest"
+df_locs$hab_type_50[df_locs$hab_type_50 != "forest"] <- "non_forest"
+
+# FIX VICK HABITAT INFORMATION BECAUSE VEGETATION SHAPEFILE IS OUTDATED <<<<<<<<<<<<<<<<<<<<<<<<<<<< NEED AN UPDATED VEGETATION SHAPEFILE--THIS IS JUST A TEMPORARY HACK FIX
+df_locs$perc_forest_100[df_locs$location_name %in% c("VF36", "VF42", "VM07")] <- c(0.06, 0.20, 0.15)
+df_locs$perc_opendev_100[df_locs$location_name %in% c("VF36", "VF42", "VM07")] <- c(0.87, 0.31, 0.85)
+df_locs$hab_type_100[df_locs$location_name %in% c("VF36", "VF42", "VM07")] <- "non_forest"
+
+df_locs$perc_forest_50[df_locs$location_name %in% c("VF36", "VF42", "VM07")] <- c(0, 0.05, 0.05)
+df_locs$perc_opendev_50[df_locs$location_name %in% c("VF36", "VF42", "VM07")] <- c(0.93, 0.15, 0.86)
+df_locs$hab_type_50[df_locs$location_name %in% c("VF36", "VF42", "VM07")] <- "non_forest"
+
 ### Functions ----
-FuncSubsetAnalysisData_DROPSITES <- function(dat) {
-  # Remove data we will not use
-  if(park == "VICK") {
-    
-    ## For VICK, only using Daniel;s data and only data starting 2012 so can avoid messy changes of researchers and also the very odd timing of 5 surveys (the yr_visits had long timespans that overlapped each other) in 2010.
-    # Remove yr_visit 2023_3 b/c that is only for one location 
-    dat %<>% 
-      dplyr::filter(researcher == "Twedt, Daniel" & yr >= 2012 & yr_visit != "2023_3")
-    
-    # Drop the 3 odd sites
-    dat %<>% dplyr::filter(!location_name %in% c("VO08", "VM07", "VF36")) %>% droplevels()
-  }
-  
-  if(park == "BITH") {
-    ## REMOVE first three years of data b/c each of these first three years had a different researcher and strong researcher impact
-    dat %<>% dplyr::filter(yr >= 2017)
-    dat %<>% dplyr::filter(yr_visit != "2018_2")
-  }
-  
-  if(park == "GUIS") {
-    dat %<>%
-      dplyr::filter(!researcher %in% c("Walker,  Jake", "Sculley,  Mike"))
-  }
-  
-  if(park == "PAAL") { # NOTE: I only started doing this for models I ran in May 2024
-    dat %<>%
-      dplyr::filter(researcher == "Pruitt,  Kenneth" & yr >= 2013)
-  }
-  
-  dat %<>%
-    droplevels(.)
-  
-  return(dat)
-}
 
 
 FuncSubsetAnalysisData <- function(dat) {
@@ -61,6 +42,7 @@ FuncSubsetAnalysisData <- function(dat) {
     # Remove yr_visit 2023_3 b/c that is only for one location 
     dat %<>% 
       dplyr::filter(researcher == "Twedt, Daniel" & yr >= 2012 & yr_visit != "2023_3")
+    
   }
   
   if(park == "BITH") {
@@ -237,7 +219,7 @@ FuncFormatUnmarkedDist <- function(park, spec, single_visit) { # formerly called
   return(dat_Nmix)
   }
 
-FuncFormatFullObs <- function(park, spec, limit_100m = TRUE, drop_sites = FALSE) {
+FuncFormatFullObs <- function(park, spec, limit_100m = TRUE) {
   # Format the df_full_obs for use
   # Add a column to indicate a researcher's first year of survey
   # Combine cov. levels
@@ -283,12 +265,7 @@ FuncFormatFullObs <- function(park, spec, limit_100m = TRUE, drop_sites = FALSE)
     dplyr::left_join(loc_dat_keep, by = c("location_name")) %>%
     dplyr::left_join(survey_dat_keep, by = c("location_name", "event_date"))
   
-  if(drop_sites == TRUE) {
-    obs_dat <- FuncSubsetAnalysisData_DROPSITES(obs_dat)
-  } else {
     obs_dat <- FuncSubsetAnalysisData(obs_dat)
-  }
-  
   
   mod_dat <- obs_dat %>%
     dplyr::mutate(yr_c = yr - median(range(obs_dat$yr, na.rm = TRUE), na.rm = TRUE), # centered on median
