@@ -1,0 +1,14 @@
+unit_code,species_code,DISTANCE issues
+BITH,HOWA,OK
+BITH,REVI,"First bin too low, need to use 0-50m"
+BITH,WEVI,OK
+JELA,AMCR,Huge jump in detections in last bin
+JELA,TUTI,OK
+PAAL,BOSP,OK
+PAAL,EAME,OK
+PAAL,GTGR,OK
+SAAN,PABU,OK
+VICK,BLJA,"First bin too low, need to use 0-50m"
+VICK,INBU,"First bin is just barely taller than second, results may be suspect"
+VICK,YBCU,"First bin too low, need to use 0-50m. Likely zero-inflated--a lot of surveys with no detections"
+SAAN,BCTI,Huge jump in detections in last bin
