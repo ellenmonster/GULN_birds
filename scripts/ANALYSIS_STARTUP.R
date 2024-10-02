@@ -56,10 +56,10 @@ FuncSubsetAnalysisData <- function(dat) {
       dplyr::filter(!researcher %in% c("Walker,  Jake", "Sculley,  Mike"))
   }
   
-  if(park == "PAAL") { # NOTE: I only started doing this for models I ran in May 2024
-    dat %<>%
-      dplyr::filter(researcher == "Pruitt,  Kenneth" & yr >= 2013)
-  }
+  # if(park == "PAAL") { # NOTE: I only started doing this for models I ran in May 2024
+  #   dat %<>%
+  #     dplyr::filter(researcher == "Pruitt,  Kenneth" & yr >= 2013)
+  # }
   
   dat %<>%
     droplevels(.)
@@ -307,10 +307,6 @@ FuncFormatFullObs <- function(park, spec, limit_100m = TRUE) {
     mod_dat$first_yr[mod_dat$researcher == first_yr$researcher[i] & mod_dat$yr == first_yr$first_yr[i]] <- 1
   }
   mod_dat$first_yr <- as.factor(mod_dat$first_yr)
-  
-  if(park == "PAAL") {
-    mod_dat %<>% dplyr::select(-hab_type_50, -hab_type_100)
-  }
   
   mod_dat %<>%
     droplevels()

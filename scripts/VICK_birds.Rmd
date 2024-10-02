@@ -11,13 +11,19 @@ output:
     smart: no
     theme: journal
     number_sections: yes
-    toc: no
+    toc: yes
+    toc_float: 
+      collapse: true
+    toc_depth: 3
 
 ---
 
 ```{r setup, include = FALSE}
 rm(list=ls())
-pkgs <- c("tidyverse", "knitr", "DT")
+pkgs <- c("tidyverse", "partykit", "magrittr", "DHARMa", "emmeans", "ggeffects", "tidybayes", "broom", "broom.mixed", "brms", "glmmTMB", "ggstats", "performance", "AICcmodavg", "here", "modelsummary", "cv", "purrr", "knitr", "gt")
+installed_pkgs <- pkgs %in% installed.packages()
+if (length(pkgs[!installed_pkgs]) > 0) install.packages(pkgs[!installed_pkgs], repos = "https://cloud.r-project.org" , dep=TRUE)
+invisible(lapply(pkgs, library, character.only = TRUE))
 installed_pkgs <- pkgs %in% installed.packages()
 if (length(pkgs[!installed_pkgs]) > 0) install.packages(pkgs[!installed_pkgs], repos = "https://cloud.r-project.org" , dep=TRUE)
 invisible(lapply(pkgs, library, character.only = TRUE))
@@ -29,65 +35,206 @@ knitr::opts_chunk$set(
   out.width = "100%", 
   cache = FALSE, 
   tidy = TRUE)
+
+options(
+  DT.options = list(
+      autoWidth = TRUE,
+      dom = 'Blfrtip',
+      buttons = c('copy', 'csv', 'excel'),
+      lengthMenu = list(c(10,20,-1),
+                        c(10,20,"All")),
+      pageLength = 20,
+      columnDefs = list(list(className = 'dt_center', targets = "_all"))
+    )
+)
 ```
 
-```{r import_format}
+
+
+```{r}
 ### Import plots ----
 
 trendplots_vec <- list.files(path = here::here("VICK_plots"), pattern = "trendplot.RDS", full.names = TRUE)
 
 plots_list <- lapply(trendplots_vec, FUN = function(x) readRDS(x))
+
+title_vecs <- lapply(plots_list, FUN = function(x) {
+  x$labels$title}) %>% unlist()
+
+plots_spec_order <- gsub(".*abundance of (.+) at.*", "\\1", title_vecs) # this is the order of species in the plots list
+names(plots_list) <- plots_spec_order
+
+### Import trend models ----
+trendmods_vec_short <- list.files(path = here::here("VICK_trendmods"), pattern = "trendmod.RDS", full.names = FALSE)
+
+trendmods_spec_order <- sapply(strsplit(trendmods_vec_short, "_"), function(x) x[3])
+
+
+trendmods_list <- lapply(trendmods_vec_short, FUN = function(x) readRDS(here::here("VICK_trendmods", x)))
+names(trendmods_list) <- trendmods_spec_order
+
+# Create a data frame of the trends information
+
+trendmods_info_list <- list()
+
+  for(i in 1:length(trendmods_list)) {
+    x <- trendmods_list[[i]] # get the model
+    spec_code <- names(trendmods_list)[i] # get the species
+  
+  if(class(x) == "brmsfit") { # extract predictors & dxn
+    predictor <- rownames(brms::fixef(x))[c(-1,-2)]
+    pred_dxn <- brms::fixef(x)[c(-1,-2), "Estimate"] %>% sign()
+    em <- emmeans::emtrends(x, specs = c("yr_sc"), var = "yr_sc") %>% summary()
+  } else {
+    pred_dxn <- lme4::fixef(x)[[1]][c(-1,-2)] %>% sign()
+    predictor <- names(lme4::fixef(x)[[1]])[c(-1,-2)]
+    em <- emmeans::emtrends(x, specs = c("yr_sc"), var = "yr_sc", data = x$frame) %>% summary()
+  }
+  pred_df <- data.frame(predictor = predictor, pred_dxn = pred_dxn) %>% 
+    dplyr::mutate(
+      pred_sign = ifelse(pred_dxn == -1, "[-]", "[+]"),
+      txt = paste0(predictor, pred_sign))
+  predictors <- paste0(paste(pred_df$txt, collapse = " AND "))
+  
+  
+  
+  trend <- round(exp(em$yr_sc.trend), 2)
+  if(class(x) == "brmsfit") {
+      low95 <- round(exp(em$lower.HPD),2)
+  high95 <- round(exp(em$upper.HPD),2)
+  signif <- sign(em$lower.HPD) == sign(em$upper.HPD)
+  } else {
+          low95 <- round(exp(em$asymp.LCL),2)
+  high95 <- round(exp(em$asymp.UCL),2)
+  signif <- sign(em$asymp.LCL) == sign(em$asymp.UCL)
+  }
+
+  trend_txt <- paste0(trend, " (", low95, ", ", high95, ")")
+
+  signif_text <- ifelse(signif, ifelse(sign(em$yr_sc.trend)==1, "INCREASING (SIGNIFICANT)", "DECLINING (SIGNIFICANT)"), ifelse(sign(em$yr_sc.trend)==1, "increasing (NS)", "declining (NS)"))
+  
+  trendmods_info_list[[i]] <- c(spec_code, signif_text, trend_txt, predictors, trend, low95, high95, signif)
+  }
+trendmods_df <- do.call("rbind", trendmods_info_list) %>% as.data.frame()
+names(trendmods_df) <- c("Species", "Trend dxn (signif.)", "Trend (95%CI)", "Signif. Predictors (dxn)", "trend_est", "trend_95low", "trend_95high", "trend_signif")
+trendmods_df$trend_est <- as.numeric(trendmods_df$trend_est)
+trendmods_df$trend_95low <- as.numeric(trendmods_df$trend_95low)
+trendmods_df$trend_95high <- as.numeric(trendmods_df$trend_95high)
+
+trendmods_df %<>%
+  dplyr::mutate(
+    Species = factor(Species, levels=trendmods_df$Species[order(trendmods_df$trend_est, decreasing = TRUE)])) %>% dplyr::arrange(Species)
+```
+# Summary trend plot across all species evaluated
+
+1. The red vertical line indicates a population that is not changing. Values > 1 indicate the population is increasing, e.g., trend estimate of 1.06 means the population is increasing 6% per year.
+
+2. For each species, the filled circle indicates the trend estimate and the error bar is a 95% CI on the trend estimate. If the error bar crosses the vertical red line, then the trend is NOT statistically significant.
+
+```{r}
+ggplot(trendmods_df, aes(x = trend_est, y = forcats::fct_rev(Species), color = `Trend dxn (signif.)`)) +
+  geom_point(size = 2.5) +
+  geom_errorbarh(aes(xmax = trend_95high, xmin = trend_95low), linewidth = .75, height = 0) +
+  scale_color_manual(values = c("increasing (NS)" = "black",
+                                 "declining (NS)" = "black",
+                                 "INCREASING (SIGNIFICANT)" = "#009E73",
+                                 "DECLINING (SIGNIFICANT)" = "#E69F00")) +
+  geom_vline(xintercept = 1, color = "red", linetype = "dotted") +
+  labs(title = "Trend estimates for most commonly detected bird species at VICK", subtitle = "(Error bars are 95%CI. Points to the RIGHT of red vertical line are increasing)", x = "Estimated trend (95% CI)", y = "Species") +
+  theme_bw()
 ```
 
-<span style="font-size:14px; color:blue; font-weight:bold;">
+# Tabular summary of VICK bird trend results
+
+1. Trend model results for 17 of the most frequently detected VICK bird species (for 100-m point counts). See 'Analysis notes' re: model-fitting issues for 3 species not shown here.
+
+2. Column definitions: 
+
+  * Species--Four-letter species code
+
+  * Trend dxn (signif.)--Direction of trend and, in parentheses, whether or not the trend is statistically significant at alpha = 0.05. NS = not statistically significant.
+
+  * Trend (95%CI)--Estimated change per year. Values >1 mean the population is increasing. For example, 1.04 means an estimated 4% increase per year. 95%CI is shown in parentheses.
+
+  * Signif. Predictors (dxn)--Predictors included in the best-fit model. These predictors have a statistically significant effect on the number of birds detected. In parentheses, `+` means an increase in the predictor is associated with an increase in species detections; `-` means an increase in the predictor is associated with a decline in species detections. When a predictor is listed with `I....E2`, that means the predictor has a quadratic relationship (curved) with the number of species detections. For example, `perc_opendev_50_sc[+] AND Iperc_opendev_50_scE2[-]` means species detections initially increase as %open/developed habitat increases, but then plateaus or even begins to decline at higher values.
+
+3. Predictors:
+
+  * For habitat predictors, `50` and `100` in the predictor name mean the metric was calculated within 50m or 100m, respectively, of point center. 
+
+  * All predictors were centered and scaled to increase likelihood of model convergence. Categorical predictors with many levels (e.g., wind) were collapsed into fewer levels to increase likelihood of model convergence.
+
+  * `perc_opendev...` and `perc_forest...` are centered, scaled estimates of % open/developed habitat and % forest habitat, respectively, as calculated from the GIS vegetation shapefile I was provided for VICK. For a few sites, these metrics have been corrected based on expert opinion. Open/developed habitat includes mowed or otherwise open areas, trails, and developed areas. % open/developed and % forest do not necessarily add up to 100% of the habitat in the 50m or 100m point count circle.
+
+  * `hrs_since_rise_sc` is a centered, scaled metric of how much time has passed since sunrise. Sunrise was determined for the particular location and day, from public agency data.
+
+  * `prop_understory_cover...` and `understory_cover_sd...` were provided to me for each site, based on LiDAR data. These predictors were centered and scaled for analyses.
+
+  * `weather_temperature_cs` is a centered, scaled metric of temperature at the time of survey.
+
+  * `julian_prop_sc` is a centered, scaled metric of day-of-year.
+
+  * `weather_wind_combwindy` is a 2-level predictor indicating whether survey conditions were calm (recorded as light breeze or less) or windy (recorded as constant breeze or more). For this predictor, [-] means detections were lower on windy days and [+] means detections were greater on windy days.
+<br>
+<br>
+<br>
+<br>
+
+```{r summary_table, echo = FALSE}
+trendmods_df %>% 
+  dplyr::select(-trend_est, -trend_95low, -trend_95high, -trend_signif) %>%
+  DT::datatable(
+    ., 
+    class="compact stripe",
+    rownames= FALSE,
+    extensions = 'Buttons',
+    filter = 'top'
+  )
+```
+
+# Species-specific trend plots with year estimates
+
+1. For each year, this plot shows an index of abundance (detections/survey) with a 95% confidence interval, estimated from GLMM models. Trend is shown as a dashed orange line with pale orange 95% confidence interval ribbon. For efficiency, the confidence intervals are Wald CI's--ultimately when a final report is produced, the CI's should be bootstrapped or calculated as profile likelihood CI's (this is a slower calculation process for statistical "correctness" but should not change results much at all).
+
+2. In these figures, predictors (e.g., wind, time-since-sunrise, etc.) are standardized to their mean values.
+
+3. The smaller year-estimate confidence intervals since 2019 for most species is due to the larger sample sizes (two surveys per year).
+
+4. Note that y-axes ranges differ by plot
+<br>
+<br>
+<br>
+<br>
+
+```{r plots, echo = FALSE, results = 'asis'}
+purrr::walk(plots_list[levels(trendmods_df$Species)], print)
+```
+
+# Analysis notes
+<span style="font-size:22px; color:black; font-weight:bold;">
 VICK data have been filtered in the following ways for improved analyses:
 </span>
 <br>
 <br>
+<span style="font-size:16px; color:black;">
 1. Only including actively surveyed locations, i.e., locations retained since the 2018 protocol peer review.
 <br>
 <br>
 2. Only including detections within 100m., to standardize survey area over time and space (habitat types)
 <br>
 <br>
-3. Only using Daniel's data and only data since (and including) 2012 to avoid additional covariate of researchers who conducted minimal surveys. Also to avoid the odd timing of 5 surveys (the yr_visits had long timespans that overlapped each other) in 2010.
+3. Only using Daniel's data because the additionally listed observers only conducted very few surveys and would add much "observer noise" to the models without sufficient data to estimate observer effects. NOTE: Some of these may be data entry errors, and the surveys were actually conducted by Daniel (need to correct data in the database).
 <br>
 <br>
-4. Compared to prior analyses, modified some of the covariates considered. Dropped the categorical "habitat type" and instead calculated "% forest cover" and "% open/developed" to use as covariates. Primarily focused on covariates measured at the 100-m scale, to match the survey area.
+4. Did not include 2010 data due to the odd timing and duration of 5 survey rounds (the survey rounds had long timespans and survey rounds overlapped each other in timing)--those data would not be usable for N-mixture models, which GULN requested for comparison to GLMER models. Also, there was a second observer who did a subset of those 2010 surveys and did not survey in subsequent years--see issue #3 above.
 <br>
 <br>
-5. Switched to Bayesian analyses with priors, due to many difficulties getting models to converge, especially when trying to do trend analyses with the full random effects structure.
+5. Compared to prior analyses, modified some of the covariates considered. Dropped the categorical "habitat type" and instead calculated "% forest cover" and "% open/developed" to use as covariates. Primarily focused on covariates measured at the 50-m or 100-m scale, since limiting survey area to 100m. 
 <br>
 <br>
+6. For several sites, used expert-corrected habitat covariates because the vegetation shapefiles provided for this analysis were outdated and some sites had been clearcut since then. Bamboo thicket (VF42) was classified as non-forest for analyses, but for a few species (e.g., flycatchers) it seems that site was functionally similar to forested sites in terms of bird counts (therefore that site is a bit of an outlier for those particular species models).
 <br>
 <br>
-<span style="font-size:14px; color:blue; font-weight:bold;">
-Things to discuss/decide about these VICK analyses before running N-mixture models:
+7. For models that had difficulties converging in glmmTMB, switched to Bayesian analyses and included weakly regularizing priors as needed.
 </span>
-<br>
-<br>
-1. Three sites (VO08, VF36, VM07) seem to be very 'different' for birds, in a way that is not captured by the current covariates. For many species, I was able to get models to pass all/most diagnostic tests only when I included a 2-level covariate that distinguished whether the count came from one of these three sites or not (ODD3 covariate).
-<br>
-<br>
-2. What does the LiDAR measure of understory cover & understory sd mean when part of the area is trails or otherwise developed? Are those developed areas excluded from measurement, or are they measured in exactly the same way as forest understory?
-<br>
-<br>
-<br>
-<br>
-<span style="font-size:14px; color:blue; font-weight:bold;">
-Species-specific trend plots with individual year estimates of relative abundance:
-</span>
-<br>
-<br>
-1. Only including successful-ish models; in some cases, year estimates are available but a trend model could not be adequately fit
-<br>
-<br>
-2. For species in which ODD3 was a significant covariate, separate estimates are provided for ODD3 and all other sites
-<br>
-<br>
-3. Other significant predictors (e.g., wind, time-since-sunrise, etc.) are held at their mean values
-<br>
-<br>
-```{r}
-plots_list
-```
+8. For three species (HOWA, CACH, DOWO--not included in this document) I am still having trouble getting models with good fit to the data. Ultimately I can just present those model results as decent approximations with the disclaimer that model diagnostics indicated some problems.

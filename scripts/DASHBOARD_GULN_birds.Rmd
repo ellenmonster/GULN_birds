@@ -104,6 +104,7 @@ df_locs$perc_opendev_50[df_locs$location_name %in% c("VF36", "VF42", "VM07")] <-
 df_locs$hab_type_50[df_locs$location_name %in% c("VF36", "VF42", "VM07")] <- "non_forest"
 dat_list$df_locs <- df_locs
 
+write_csv(df_locs, here::here("PARK_HABITATS.csv"))
 
 dat_list$df_buffer_info <- readRDS(here::here("Data_out", "df_buffer_info.RDS")) # info on habitat within various distances from survey point center
 
@@ -126,9 +127,9 @@ FuncSubsetAnalysisData <- function(dat) {
 
     ## For PAAL...
 
-    # NOTE: I only started doing this for models I ran in May 2024
-    dat %<>%
-      dplyr::filter(unit_code != "PAAL" | (observer == "Pruitt,  Kenneth" & yr >= 2013))
+    # # NOTE: I only started doing this for models I ran in May 2024
+    # dat %<>%
+    #   dplyr::filter(unit_code != "PAAL" | (observer == "Pruitt,  Kenneth" & yr >= 2013))
     
     dat %<>%
       droplevels(.) 
@@ -1728,7 +1729,7 @@ renderUI({
   checkboxGroupInput("sel_species_parks",
                      label = strong("Select Park(s): "),
                      choices = FuncParkChoices(input$sel_common, input$sel_species),
-                     selected = "VICK" #switch(is.null(input$sel_species_parks)+1, input$sel_species_parks, FuncParkChoices(input$sel_common, input$sel_species))  <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+                     selected = "PAAL" #switch(is.null(input$sel_species_parks)+1, input$sel_species_parks, FuncParkChoices(input$sel_common, input$sel_species))  <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
                      )
   })
 

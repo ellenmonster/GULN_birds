@@ -51,10 +51,15 @@ options(
 
 # File names -- CHANGE AS NEEDED
 
-counts_file <- "GULN_bird_counts.csv" # This is the combination of (sans VICK) GULN 2010-2022 data with VICK 2010-2023 data
+counts_file <- "GULN_AllParks_BBirdObservations_2010-2024.csv" # This is the combination of (sans VICK) GULN 2010-2022 data with VICK 2010-2023 data
 park_lists_file <- "Park_lists_2017.csv"
 veg_file <- "GULN_AllParks_BBird_Veg_061522.csv"
-conditions_file <- "GULN_AllParks_BBird_SiteConditions.csv"
+conditions_file <- "GULN_AllParks_BBird_SiteConditions_2010-2024.csv"
+
+# Crosswalk file
+xwalk <- read_csv(here::here("Data_in", "gulnBirdPtCrosswalk_dbToProtocol.csv")) %>%
+  dplyr::select(location_name = id_db, protocol_name = id_protocol) %>%
+  dplyr::mutate(protocol_name = toupper(protocol_name))
 
 # These are data already cleaned in 1a file
 df_zones <- readRDS(here::here("Data_out", "df_zones.RDS"))
@@ -62,11 +67,17 @@ maps_list <- readRDS(here::here("Data_out", "maps_list.RDS"))
 df_active <- readRDS(here::here("Data_out", "df_active.RDS"))
 
 # Read in data and format remaining data
-df_initialdat <- read_csv(here::here("Data_in", counts_file),
+df_temp <- read_csv(here::here("Data_in", counts_file),
                     col_types = cols(TimeBinID = col_character(),
                                      PointNotes = col_character(), 
                                      EventComments = col_character())) %>%
-  janitor::clean_names("snake") %>%
+  janitor::clean_names("snake") 
+
+# Crosswalk names as needed
+idx <- match(df_temp$location_name, xwalk$protocol_name)
+df_initialdat <- transform(df_temp, location_name = ifelse(!is.na(idx), xwalk$location_name[idx], location_name))
+
+df_initialdat %<>%
   dplyr::filter(location_name %in% df_active$location_name) %>% # just keep survey locations regularly surveyed after the 2018 protocol peer review (active monitoring points)
   dplyr::mutate(
     event_date = lubridate::mdy(date),
@@ -132,13 +143,18 @@ df_locs <- read_csv(here::here("Data_in", veg_file)) %>%
   dplyr::filter(location_name %in% unique(df_initialdat$location_name)) %>%
   dplyr::distinct()
 
-df_survey_conditions <- read_csv(here::here("Data_in", conditions_file)) %>%
+df_survey_temp <- read_csv(here::here("Data_in", conditions_file)) %>%
   janitor::clean_names("snake") %>%
   dplyr::mutate(event_date = lubridate::mdy(date)) %>% # event covariate data--match using location_name and event_date
   dplyr::select(-date) %>%
   dplyr::rename(
     weather_noise_num = weather_background_noise,
-    weather_wind_num = weather_wind) %>%
+    weather_wind_num = weather_wind)
+
+# Crosswalk names as needed
+idx_cond <- match(df_survey_temp$location_name, xwalk$protocol_name)
+df_survey_conditions <- transform(df_survey_temp, location_name = ifelse(!is.na(idx_cond), xwalk$location_name[idx_cond], location_name))
+df_survey_conditions %<>%
   dplyr::right_join(df_locs[, c("unit_code", "location_name")], by = "location_name") %>%
   dplyr::mutate(
     weather_wind = case_when(
@@ -166,7 +182,7 @@ df_survey_conditions <- read_csv(here::here("Data_in", conditions_file)) %>%
     weather_temperature_cs = as.numeric(scale(weather_temperature)), # centered and scaled temp
     wk = lubridate::week(event_date),
     julian_prop = lubridate::yday(event_date)/365) %>% 
-  dplyr::inner_join(df_initialdat[c("location_name", "event_date")]) %>%
+  # dplyr::inner_join(df_initialdat[c("location_name", "event_date")]) %>% # this would be if want to drop surveys in which no birds at all were detected
   distinct()
 
 # Calculate time-since-sunrise (instead of start_time_interval)
@@ -186,7 +202,8 @@ temp$hrs_since_rise <- as.numeric(temp$time_since_rise)
 df_survey_conditions %<>%
   dplyr::left_join(temp[, c("location_name", "event_date", "time", "hrs_since_rise")], by = c("location_name", "event_date", "time"))
     
-
+zero_birds <- df_survey_conditions %>% dplyr::select(location_name, event_date) %>% dplyr::left_join(df_initialdat, by = c("location_name", "event_date")) %>% dplyr::group_by(location_name, event_date) %>% dplyr::summarize(tot_birds = sum(count, na.rm = TRUE)) %>% dplyr::filter(tot_birds == 0)
+  
 # Generate the final data for analyses ----
 # Count the number of individuals detected per species-loc-survey
 # Need to add in zero-counts. This is the full observation data, including non-detection of species. 
@@ -195,7 +212,8 @@ df_finaldat <- df_initialdat %>% # only keep species that are also in the park s
   dplyr::inner_join(df_species %>% dplyr::select(unit_code, species_code, scientific_name, common_name, landbird, park_breeding = present_in_np_species_classified_as_park_breeding) %>% distinct(), by = c("unit_code", "species_code")) %>%
   dplyr::filter(location_name %in% unique(df_locs$location_name)) %>% # only keep locations with corresponding information the sample locations file
   dplyr::inner_join(df_survey_conditions[c("location_name", "event_date")] %>% distinct(), by = c("location_name", "event_date")) %>% # only keep survey events with corresponding information in site conditions file
-  dplyr::filter(complete.cases(location_name, event_date, species_code, time_bin_id, distance_bin_id, count, data_status)) %>%
+  dplyr::filter(data_status == "Accepted") %>%
+  dplyr::filter(complete.cases(location_name, event_date, species_code, count)) %>%
   dplyr::distinct()
   
 yr_visit_template <- df_finaldat %>%
@@ -301,6 +319,53 @@ if(nrow(missing_dat) > 0) {
 }
 ```
 
+# No birds of any species detected during these surveys
+
+* No birds were detected during these 10-minute surveys.
+
+<span style="font-size:14px; color:red; font-weight:bold;">
+Please check that this is correct, and edit/re-import data if needed.
+</span>
+
+```{r}
+
+if(nrow(zero_birds) > 0) {
+  zero_birds %>% DT::datatable(
+    ., 
+    class="compact stripe",
+    rownames= FALSE,
+    extensions = 'Buttons',
+    filter = 'top'
+  )
+} else {
+  cat("All survey events had at least one bird detection")
+}
+```
+
+# Data status is NOT 'Accepted'
+
+* No birds were detected during these 10-minute surveys.
+
+<span style="font-size:14px; color:red; font-weight:bold;">
+Please check that this is correct. Only data recorded as 'Accepted' will be included in the final data set used in analyses.
+</span>
+
+```{r}
+
+not_accepted <- df_initialdat %>% dplyr::filter(data_status != "Accepted")
+if(nrow(not_accepted) > 0) {
+  not_accepted %>% DT::datatable(
+    ., 
+    class="compact stripe",
+    rownames= FALSE,
+    extensions = 'Buttons',
+    filter = 'top'
+  )
+} else {
+  cat("All data records have status of 'Accepted'")
+}
+```
+
 # More than one record for a park unit-species code combination, in Park Species List
 
 * The park species list has multiple records (with different information) for these combinations of park unit and 4-letter species code.*
@@ -333,7 +398,7 @@ if(nrow(duplic_species) > 0) {
 *These 4-letter species codes were detected in point counts for a park unit but are not recorded in the park species list for that park unit. In some cases the species may be in the park species list but the 4-letter species code may not match. *
 
 <span style="font-size:14px; color:red; font-weight:bold;">
-Please add the following species codes to the park species list for the corresponding park units. Then re-import the updated park species list. Only species and park units recorded in the park species list will be included in the final data set used in analyses.
+Please add the following species codes to the park species list for the corresponding park units. Then re-import the updated park species list. IMPORTANT!! Only species and park units recorded in the park species list will be included in the final data set used in analyses.
 </span>
 
 ```{r}
@@ -484,9 +549,37 @@ if(nrow(duplic_conditions) > 0) {
 }
 ```
 
-# Missing (important) information in Site Conditions file
+# Count records with missing IMPORTANT information
 
-*These site conditions records are missing important covariate information. The missing information are indicated by YELLOW highlighted cells in the table below.*
+*These bird observation records have a missing value (NA) in at least one of these IMPORTANT columns: location_name, event_date, species_code, time, count, data_status.*
+
+<span style="font-size:14px; color:red; font-weight:bold;">
+Please add the missing information in the following bird observation records, then re-import the updated bird observations file. Only bird observation records with complete (important) information will be included in the final data set used in analyses.
+</span>
+
+```{r}
+incomplete_records <- df_initialdat %>%
+  dplyr::select(unit_code, location_name, event_date, species_code, count, data_status) %>%
+  dplyr::filter(!complete.cases(.)) %>%
+  dplyr::arrange(location_name, event_date, species_code)
+
+if(nrow(incomplete_records) > 0) {
+  incomplete_records %>% 
+  DT::datatable(
+    ., 
+    class="compact stripe",
+    rownames= FALSE,
+    extensions = 'Buttons',
+    filter = 'top'
+  )
+} else {
+  cat("No count record is missing important information")
+}
+```
+
+# Missing covariate information in Site Conditions file
+
+*These site conditions records are missing covariate information. The missing information are indicated by YELLOW highlighted cells in the table below.*
 
 <span style="font-size:14px; color:red; font-weight:bold;">
 If available, please add the missing covariate information to these records, then re-import the updated site conditions file. Otherwise--when covariate information is missing, the corresponding observations are excluded from analyses that include the covariate.
@@ -495,7 +588,8 @@ If available, please add the missing covariate information to these records, the
 ```{r}
 missing_cov <- df_survey_conditions %>%
   dplyr::select(unit_code, location_name, event_date, researcher, time, weather_wind_num, weather_temperature, weather_sky, weather_count_season, weather_noise_num) %>%
-  dplyr::filter(!complete.cases(.))
+  dplyr::filter(!complete.cases(.)) %>%
+  dplyr::arrange(desc(event_date))
 
 if(nrow(missing_cov) > 0) {
   missing_cov %>% DT::datatable(
@@ -506,7 +600,7 @@ if(nrow(missing_cov) > 0) {
     filter = 'top'
   ) %>% DT::formatStyle(colnames(missing_cov), backgroundColor  = styleEqual(c(NA), c("yellow")))
 } else {
-  cat("No missing (important) covariate information in site conditions records")
+  cat("No missing covariate information in site conditions records")
 }
 ```
 
@@ -575,33 +669,5 @@ if(nrow(fix_counts) > 0) {
   )
 } else {
   cat("No unusual count entries")
-}
-```
-
-# Count records with missing (important) information
-
-*These bird observation records have a missing value (NA) in at least one of these (important) columns: location_name, event_date, species_code, time_bin_id, distance_bin_id, count, data_status.*
-
-<span style="font-size:14px; color:red; font-weight:bold;">
-Please add the missing information in the following bird observation records, then re-import the updated bird observations file. Only bird observation records with complete (important) information will be included in the final data set used in analyses.
-</span>
-
-```{r}
-incomplete_records <- df_initialdat %>%
-  dplyr::select(unit_code, location_name, event_date, species_code, distance_bin_id, count, data_status) %>%
-  dplyr::filter(!complete.cases(.)) %>%
-  dplyr::arrange(location_name, event_date, species_code)
-
-if(nrow(incomplete_records) > 0) {
-  incomplete_records %>% 
-  DT::datatable(
-    ., 
-    class="compact stripe",
-    rownames= FALSE,
-    extensions = 'Buttons',
-    filter = 'top'
-  )
-} else {
-  cat("No count record is missing important information")
 }
 ```
