@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ESRI_ItemInformation Culture='en-US'>
+<name>ZonalStats_VegDensity1to5mAgl_AtGulnBirdMonPts</name>
+<guid>C6CB6E67-0D66-4558-8BF9-793D0B80B51C</guid>
+<version>1.0</version>
+<created></created>
+<modified></modified>
+<catalogpath></catalogpath>
+<snippet>mean and standard deviation of vegetation density occurring from 1 to 5m above ground level.  statistics were generated within 50, 100 and 200 meter buffers of GULN bird monitoring locations.</snippet>
+<description>birdPtBuf50and100m</description>
+<summary>mean and standard deviation of vegetation density occurring from 1 to 5m above ground level.  statistics were generated within 50, 100 and 200 meter buffers of GULN bird monitoring locations.</summary>
+<title>ZonalStats_VegDensity1to5mAgl_AtGulnBirdMonPts</title>
+<tags>guln,bird monitoring</tags>
+<type>Layer Package</type>
+<typekeywords>
+<typekeyword>Layer Package</typekeyword>
+<typekeyword>Data</typekeyword>
+<typekeyword>ArcGIS Pro</typekeyword>
+<typekeyword>ArcGIS Explorer</typekeyword>
+<typekeyword>lpkx</typekeyword>
+</typekeywords>
+<thumbnail>thumbnail/thumbnail.png</thumbnail>
+<documentation></documentation>
+<url></url>
+<extent>
+<xmin>-98.494295021</xmin>
+<ymin>26.0031575260001</ymin>
+<xmax>-87.117063864</xmax>
+<ymax>32.3806672910001</ymax>
+</extent>
+<spatialreference>GCS_WGS_1984</spatialreference>
+<minScale>591657527.591555</minScale>
+<maxScale>1128.4971760000001</maxScale>
+<datalastModifiedTime></datalastModifiedTime>
+<accessinformation></accessinformation>
+<licenseinfo></licenseinfo>
+</ESRI_ItemInformation>
